@@ -750,7 +750,7 @@ MyBatis Generator：MyBatis 的开发团队提供了一个很强大的代码生�
 ### 5.1.1 从命令提示符 使用 XML 配置文件
 * step1.根据generatorConfig.xml建立好目录结构
 * step2.将generatorConfig.xml mybatis-generator-core-1.3.5.jar mysql-connector-java-xxx.jar放到与src同一级目录下面
-<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/mbg目录.jpg" width="520px" > </div><br>
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/mbg目录.jpg" width="220px" > </div><br>
 * step3.同时注意修改generatorConfig.xml引用的<classPathEntry location，修改成当前路径即可
 * step4.执行下面的命令
 ```
@@ -939,7 +939,172 @@ generatorConfig.xml：
 ```
 
 # 6.与spring集成
-Mybatis-spring
+Mybatis-spring 用于帮助你将 MyBatis 代码无缝地整合到 Spring 中。 
+* Spring 将会加载必要的 MyBatis 工厂类和 session 类
+* 提供一个简单的方式来注入 MyBatis 数据映射器和 SqlSession 到业务层的 bean 中。 
+* 方便集成spring事务
+* 翻译 MyBatis 的异常到 Spring 的 DataAccessException 异常(数据访问异常)中。
+
+## 6.1 集成配置最佳实践
+
+#### step1.准备spring项目一个
+
+#### step2.在pom文件中添加mybatis-spring的依赖
+```
+<dependency>
+	<groupId>org.mybatis</groupId>
+	<artifactId>mybatis-spring</artifactId>
+	<version>1.3.0</version>
+</dependency>
+
+```
+
+#### step3.配置SqlSessionFactoryBean
+在 MyBatis-Spring 中， SqlSessionFactoryBean 是用于创建 Sql SessionFactory 的。
+*  dataSource ：用于配置数据源，该属性为必选项，必须通过这个属性配置数据源 ，这里使用了上一节中配置好的 dataSource 数据库连接池 。
+*  mapper Locations ： 配置 SqlSessionFactoryBean 扫描 XML 映射文件的路径，可以使用 Ant 风格的路径进行配置。
+*  configLocation ：用于配置mybatis config XML的路径，除了数据源外，对MyBatis的各种配置仍然可以通过这种方式进行，并且配置MyBatis settings 时只能使用这种方式。但配置文件中任意环境,数据源 和 MyBatis 的事务管理器都会被忽略；
+*  typeAliasesPackage ： 配置包中类的别名，配置后，包中的类在 XML 映射文件中使用时可以省略包名部分 ，直接使用类名。这个配置不支持 Ant风格的路径，当需要配置多个包路径时可以使用分号或逗号进行分隔 。
+
+
+#### step4.配置MapperScannerConfigurer
+通过 MapperScannerConfigurer类自动扫描所有的 Mapper 接口，使用时可以直接注入接口 。
+
+MapperScannerConfigurer中常配置以下两个属性。
+*  basePackage ： 用于配置基本的包路径。可以使用分号或逗号作为分隔符设置多于一个的包路径，每个映射器将会在指定的包路径中递归地被搜索到 。
+*  annotationClass ： 用于过滤被扫描的接口，如果设置了该属性，那么 MyBatis 的接口只有包含该注解才会被扫描进去
+
+
+#### step5.配置事务
+
+
+整体的applicationContext.xml配置：
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:c="http://www.springframework.org/schema/c"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:cache="http://www.springframework.org/schema/cache" xmlns:tx="http://www.springframework.org/schema/tx"
+	xmlns:redisson="http://redisson.org/schema/redisson" xmlns:aop="http://www.springframework.org/schema/aop"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+                        http://www.springframework.org/schema/beans/spring-beans.xsd
+		                http://www.springframework.org/schema/context 
+		                http://www.springframework.org/schema/context/spring-context-4.3.xsd
+		                http://www.springframework.org/schema/cache
+                        http://www.springframework.org/schema/cache/spring-cache.xsd
+                        http://www.springframework.org/schema/tx 
+          				http://www.springframework.org/schema/tx/spring-tx-3.2.xsd
+          				http://redisson.org/schema/redisson
+          				http://redisson.org/schema/redisson/redisson.xsd
+          				http://www.springframework.org/schema/aop
+        				http://www.springframework.org/schema/aop/spring-aop-4.2.xsd">
+
+	<context:property-placeholder location="classpath:software/mybatis/db.properties"
+		ignore-unresolvable="true" />
+
+	<bean id="dataSource" class="com.alibaba.druid.pool.DruidDataSource"
+		init-method="init" destroy-method="close">
+		<!-- 基本属性 url、user、password -->
+		<property name="driverClassName" value="${jdbc_driver}" />
+		<property name="url" value="${jdbc_url}" />
+		<property name="username" value="${jdbc_username}" />
+		<property name="password" value="${jdbc_password}" />
+
+		<!-- 配置初始化大小、最小、最大 -->
+		<property name="initialSize" value="1" />
+		<property name="minIdle" value="1" />
+		<property name="maxActive" value="20" />
+
+		<!-- 配置获取连接等待超时的时间 -->
+		<property name="maxWait" value="60000" />
+
+		<!-- 配置间隔多久才进行一次检测，检测需要关闭的空闲连接，单位是毫秒 -->
+		<property name="timeBetweenEvictionRunsMillis" value="60000" />
+
+		<!-- 配置一个连接在池中最小生存的时间，单位是毫秒 -->
+		<property name="minEvictableIdleTimeMillis" value="300000" />
+
+		<property name="validationQuery" value="SELECT 'x'" />
+		<property name="testWhileIdle" value="true" />
+		<property name="testOnBorrow" value="false" />
+		<property name="testOnReturn" value="false" />
+
+		<!-- 打开PSCache，并且指定每个连接上PSCache的大小 -->
+		<property name="poolPreparedStatements" value="true" />
+		<property name="maxPoolPreparedStatementPerConnectionSize"
+			value="20" />
+		<!-- 配置监控统计拦截的filters -->
+		<property name="filters" value="stat" />
+	</bean>
+
+
+	<!-- spring和MyBatis完美整合，不需要mybatis的配置映射文件 -->
+	<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+		<property name="dataSource" ref="dataSource" />
+		<property name="typeAliasesPackage" value="software.mybatis.entity" />
+		<property name="mapperLocations" value="classpath:software/mybatis/sqlmapper/demo/*.xml" />
+	</bean>
+
+	 <bean id="tUserMapper" class="org.mybatis.spring.mapper.MapperFactoryBean">
+		<property name="mapperInterface" value="software.mybatis.mapper.TUserMapper"></property>
+		<property name="sqlSessionFactory" ref="sqlSessionFactory"></property>
+	</bean>
+	
+	<!-- DAO接口所在包名，Spring会自动查找其下的类 -->
+	 <bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">
+		<property name="basePackage" value="software.mybatis.mapper" />
+	</bean> 
+
+
+
+	<!-- (事务管理)transaction manager -->
+	<bean id="transactionManager"
+		class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+		<property name="dataSource" ref="dataSource" />
+		<qualifier value="transactionManager" />
+	</bean>
+
+	<tx:annotation-driven transaction-manager="transactionManager" />
+
+
+	<context:component-scan base-package="software.mybatis.*">
+	</context:component-scan>
+
+</beans>
+
+```
+UserServiceImpl.java：
+```
+@Service
+public class UserServiceImpl implements UserService {
+	
+	@Resource(name="tUserMapper")
+	private TUserMapper userMapper;
+
+	@Override
+	public TUser getUserById(Integer id) {
+		return userMapper.selectByPrimaryKey(id);
+	}
+}
+```
+测试代码：
+```
+@RunWith(SpringJUnit4ClassRunner.class)
+@ContextConfiguration("classpath:software/mybatis/applicationContext.xml")
+public class MybatisSpringTest {
+
+	@Resource
+	private UserService us;
+	
+	@Test
+	public void TestSpringMybatis(){
+		System.out.println(us.getUserById(1).toString());
+	}
+	
+}
+
+```
+
 
 # 7.阿里编码规范
 (四) ORM 映射
@@ -973,7 +1138,7 @@ Mybatis-spring
 
 9. 【参考】@Transactional 事务不要滥用。事务会影响数据库的 QPS，另外使用事务的地方需要考虑各方面的回滚方案，包括缓存回滚、搜索引擎回滚、消息补偿、统计修正等。
 
-10.【参考】<isEqual>中的 compareValue 是与属性值对比的常量，一般是数字，表示相等时带上此条件；<isNotEmpty>表示不为空且不为 null 时执行；<isNotNull>表示不为 null 值时执行。
+10. 【参考】<isEqual>中的 compareValue 是与属性值对比的常量，一般是数字，表示相等时带上此条件；<isNotEmpty>表示不为空且不为 null 时执行；<isNotNull>表示不为 null 值时执行。
 
 # 8.相关问题
 
