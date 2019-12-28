@@ -162,7 +162,10 @@ public class UserServiceImpl implements UserService {
     }
 ```
 logback-classic中有实现类org.slf4j.impl.StaticLoggerBinder：
+
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/pathset.jpg" width="620px" > </div><br>
+
+
 ```
 SLF4J: Class path contains multiple SLF4J bindings.
 SLF4J: Found binding in [jar:file:/D:/Program%20Files/apache-maven-3.5.4/repository/ch/qos/logback/logback-classic/1.2.3/logback-classic-1.2.3.jar!/org/slf4j/impl/StaticLoggerBinder.class]
@@ -175,9 +178,11 @@ SLF4J: Found binding in [jar:file:/D:/Program%20Files/apache-maven-3.5.4/reposit
 ```
 getResource("java/lang/Class.class");
 ```
+
 其实上面的方式就是常用的类加载的方式。
 
 StaticLoggerBinder.getSingleton();会进入logback-classic中类StaticLoggerBinder的初始化。然后获取LoggerFactory：
+
 ```
     public ILoggerFactory getLoggerFactory() {
         if (!initialized) {
@@ -192,7 +197,9 @@ StaticLoggerBinder.getSingleton();会进入logback-classic中类StaticLoggerBind
 ```
 
 # 2.Logback是怎样找到logback.xml配置文件的？
+
 第一次调用StaticLoggerBinder.getSingleton();会进入StaticLoggerBinder的静态初始化代码块：
+
 ```
 public class StaticLoggerBinder implements LoggerFactoryBinder {
 
@@ -216,6 +223,7 @@ public class StaticLoggerBinder implements LoggerFactoryBinder {
         SINGLETON.init();
     }
 ```
+
 ```
     /**
      * Package access for testing purposes.
@@ -238,7 +246,9 @@ public class StaticLoggerBinder implements LoggerFactoryBinder {
         }
     }
 ```
+
 autoConfig方法：
+
 ```
     public void autoConfig() throws JoranException {
         StatusListenerConfigHelper.installIfAsked(loggerContext);
@@ -263,18 +273,23 @@ autoConfig方法：
         }
     }
 ```
+
 findURLOfDefaultConfigurationFile按顺序查找配置文件：
+
 ```
     final public static String GROOVY_AUTOCONFIG_FILE = "logback.groovy";
     final public static String AUTOCONFIG_FILE = "logback.xml";
     final public static String TEST_AUTOCONFIG_FILE = "logback-test.xml";
     final public static String CONFIG_FILE_PROPERTY = "logback.configurationFile";
 ```
+
 * step1.从logback.configurationFile指定的位置查找
 * step2.查找logback-test.xml
 * step3.查找logback.groovy
 * step4.查找logback.xml
 * step5.根据上面的autoConfig()，如果还没有找到，就使用BasicConfigurator
+
+
 ```
     public URL findURLOfDefaultConfigurationFile(boolean updateStatus) {
         ClassLoader myClassLoader = Loader.getClassLoaderOfObject(this);
@@ -296,7 +311,9 @@ findURLOfDefaultConfigurationFile按顺序查找配置文件：
         return getResource(AUTOCONFIG_FILE, myClassLoader, updateStatus);
     }
 ```
+
 其中findConfigFileURLFromSystemProperties查找属性CONFIG_FILE_PROPERTY=logback.configurationFile
+
 ```
     private URL findConfigFileURLFromSystemProperties(ClassLoader classLoader, boolean updateStatus) {
         String logbackConfigFile = OptionHelper.getSystemProperty(CONFIG_FILE_PROPERTY);
@@ -340,7 +357,9 @@ findURLOfDefaultConfigurationFile按顺序查找配置文件：
     }
 
 ```
+
 将logback.xml放在resources下面的时候，获得的url为：
+
 ```
 file:/E:/wz/projects/java/target/classes/logback.xml
 ```
@@ -354,6 +373,8 @@ file:/E:/wz/projects/java/target/classes/logback.xml
 * AppenderRefAction.begin()方法调用appenderAttachable.addAppender(appender)将appender加入到logback的Logger.aai中去
 * <file>${appName}.log</file>调用NestedBasicPropertyIA.body()方法，最终调用RollingFileAppender.setFile()方法
 * <rollingPolicy> 调用NestedComplexPropertyIA.end()方法，最终调用RollingFileAppender.setRollingPolicy
+
+
 ```
     public void autoConfig() throws JoranException {
         StatusListenerConfigHelper.installIfAsked(loggerContext);
@@ -361,6 +382,7 @@ file:/E:/wz/projects/java/target/classes/logback.xml
         if (url != null) {
             configureByResource(url);
 ```
+
 ```
     public void configureByResource(URL url) throws JoranException {
         if (url == null) {
@@ -385,6 +407,7 @@ file:/E:/wz/projects/java/target/classes/logback.xml
         }
     }
 ```
+
 ```
     public final void doConfigure(URL url) throws JoranException {
         InputStream in = null;
@@ -415,6 +438,7 @@ file:/E:/wz/projects/java/target/classes/logback.xml
     }
 
 ```
+
 ```
     public final void doConfigure(InputStream inputStream, String systemId) throws JoranException {
         InputSource inputSource = new InputSource(inputStream);
@@ -422,6 +446,7 @@ file:/E:/wz/projects/java/target/classes/logback.xml
         doConfigure(inputSource);
     }
 ```
+
 ```
     public final void doConfigure(final InputSource inputSource) throws JoranException {
 
@@ -440,6 +465,7 @@ file:/E:/wz/projects/java/target/classes/logback.xml
         }
     }
 ```
+
 ```
     public void doConfigure(final List<SaxEvent> eventList) throws JoranException {
         buildInterpreter();
@@ -449,6 +475,7 @@ file:/E:/wz/projects/java/target/classes/logback.xml
         }
     }
 ```
+
 ```
     public void play(List<SaxEvent> aSaxEventList) {
         eventList = aSaxEventList;
@@ -475,10 +502,13 @@ file:/E:/wz/projects/java/target/classes/logback.xml
         }
     }
 ```
+
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/处理logback.jpg" width="620px" > </div><br>
+
 
 进一步，addAppender是在play中解析出来的：
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/addAppender是在play中解析出来.jpg" width="620px" > </div><br>
+
 
 ```
 public class AppenderAttachableImpl<E> implements AppenderAttachable<E> {
@@ -501,7 +531,9 @@ public class AppenderAttachableImpl<E> implements AppenderAttachable<E> {
 
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/appenderlist.jpg" width="520px" > </div><br>
 
+
 也即将appender放在了logback的Logger的aai属性里面
+
 
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/保存在contextSelector的defaultLoggerContext里面.jpg" width="620px" > </div><br>
 
@@ -548,6 +580,7 @@ public class AppenderAttachableImpl<E> implements AppenderAttachable<E> {
 ```
 
 然后从中获取ILoggerFactory：
+
 ```
 public class DefaultContextSelector implements ContextSelector {
 
