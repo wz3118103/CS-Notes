@@ -94,6 +94,9 @@ public final class LogFactory {
 
 看看Slf4jImpl的构造方法：
 ```
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class Slf4jImpl implements Log {
 
   private Log log;
@@ -119,69 +122,8 @@ public class Slf4jImpl implements Log {
   }
 ```
 
-核心关键是Logger logger = LoggerFactory.getLogger(clazz);
+使用LoggerFactory.getLogger(clazz)会找到logback实现类，然后加载成功日志实现。
 
-LoggerFactory.getLogger是调用org.slf4j.LoggerFactory：
-```
-    public static Logger getLogger(String name) {
-        ILoggerFactory iLoggerFactory = getILoggerFactory();
-        return iLoggerFactory.getLogger(name);
-    }
-```
-
-其中getILoggerFactory()如下：
-```
-    public static ILoggerFactory getILoggerFactory() {
-        if (INITIALIZATION_STATE == 0) {
-            INITIALIZATION_STATE = 1;
-            performInitialization();
-        }
-
-        switch(INITIALIZATION_STATE) {
-        case 1:
-            return TEMP_FACTORY;
-        case 2:
-            throw new IllegalStateException("org.slf4j.LoggerFactory could not be successfully initialized. See also http://www.slf4j.org/codes.html#unsuccessfulInit");
-        case 3:
-            return StaticLoggerBinder.getSingleton().getLoggerFactory();
-        case 4:
-            return NOP_FALLBACK_FACTORY;
-        default:
-            throw new IllegalStateException("Unreachable code");
-        }
-    }
-```
-
-performInitialization()方法如下：
-```
-    private static final void performInitialization() {
-        bind();
-        if (INITIALIZATION_STATE == 3) {
-            versionSanityCheck();
-        }
-
-    }
-```
-
-运行完之后，INITIALIZATION_STATE值为3，因此走StaticLoggerBinder.getSingleton().getLoggerFactory()。
-
-```
-    public ILoggerFactory getLoggerFactory() {
-        if (!this.initialized) {
-            return this.defaultLoggerContext;
-        } else if (this.contextSelectorBinder.getContextSelector() == null) {
-            throw new IllegalStateException("contextSelector cannot be null. See also http://logback.qos.ch/codes.html#null_CS");
-        } else {
-            return this.contextSelectorBinder.getContextSelector().getLoggerContext();
-        }
-    }
-```
-
-<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/LoggerContext.jpg" width="520px" > </div><br>
-
-<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/ILoggerFactory.jpg" width="520px" > </div><br>
-
-<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/Slf4jImpl.jpg" width="520px" > </div><br>
 
 Slf4jLocationAwareLoggerImpl就是在封装了一层，实际使用logger进行日志记录。
 ```

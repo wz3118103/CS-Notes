@@ -565,7 +565,9 @@ public class DefaultContextSelector implements ContextSelector {
         return defaultLoggerContext;
     }
 ```
-<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/defaultLoggerContext.jpg" width="620px" > </div><br>
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/defaultLoggerContext.jpg" width="620px"> </div><br>
+
 
 # 参考
 * [使用ClassLoader加载资源详解](https://my.oschina.net/u/2474629/blog/1501101)
