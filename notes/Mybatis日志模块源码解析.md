@@ -21,7 +21,7 @@
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/日志模块类图.jpg" width="520px" > </div><br>
 
 
-<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/Log适配器类图.png" width="520px" > </div><br>
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/Log适配器类图.png" width="720px" > </div><br>
 
 
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/Slf4j.png" width="520px" > </div><br>
@@ -177,11 +177,11 @@ class Slf4jLocationAwareLoggerImpl implements Log {
 
 ## 3.2 日志模块JDBC包类图
 
-<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/JdbcLogger.png" width="620px" > </div><br>
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/JdbcLogger.png" width="820px" > </div><br>
 
 *  ConnectionLogger：负责打印连接信息和SQL语句，并创建PreparedStatementLogger；
 *  PreparedStatementLogger：负责打印参数信息，并创建ResultSetLogger
-*  ResultSetLogge：r负责打印数据结果信息。
+*  ResultSetLogger：负责打印数据结果信息。
 
 
 ## 3.3 ConnectionLogger
