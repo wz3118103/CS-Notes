@@ -366,6 +366,17 @@ file:/E:/wz/projects/java/target/classes/logback.xml
 
 # 3.logback.xml配置信息放在哪个数据结构中？
 
+Q.iLoggerFactory.getLogger(name)返回的Logger到底长什么样子？
+
+```
+package ch.qos.logback.classic;
+
+public final class Logger implements org.slf4j.Logger, LocationAwareLogger, AppenderAttachable<ILoggingEvent>, Serializable {
+
+```
+
+如下图所示，logback.xml中的配置信息全部放在该Logger里面，核心是aai属性。
+
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/Logger各种属性.png" width="520px" > </div><br>
 
 
