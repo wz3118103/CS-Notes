@@ -21,7 +21,7 @@
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/日志模块类图.jpg" width="520px" > </div><br>
 
 
-<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/Log适配器类图.png" width="720px" > </div><br>
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/Log适配器类图.png" width="920px" > </div><br>
 
 
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/Slf4j.png" width="520px" > </div><br>

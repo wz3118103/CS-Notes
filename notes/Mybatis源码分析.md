@@ -28,10 +28,18 @@
 
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/MyBatis源码分层结构.jpg" width="520px" > </div><br>
 
-# 3.日志模块
+# 3.基础层
+
+## 3.1 日志模块
 三个核心问题以及Mybatis的解决方案：
 * MyBatis没有提供日志的实现类，需要接入第三方的日志组件，但第三方日志组件都有各自的Log级别，且各不相同，二MyBatis统一提供trace、debug、warn、error四个级别；
   - 使用了适配器设计模式
 * 自动扫描日志实现，并且第三方日志插件加载优先级如下：slf4J → commonsLoging → Log4J2 → Log4J → JdkLog;
 * 日志的使用要优雅的嵌入到主体功能中；
   - 使用了动态代理
+
+## 3.2 数据源模块
+
+## 3.3 缓存模块
+
+## 3.4 反射模块
