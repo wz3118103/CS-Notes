@@ -1056,6 +1056,8 @@ MapperRegistry.getMapper()：
 * step3.MapperMethod.execute会转调至SqlSession.selectOne()方法
 * step4.selectOne(String statement, Object parameter)最后统一调用selectList(statement, parameter)
 
+
+
 ## 2.2 MapperRegistry
 
 衔接第一部分中的mapper阶段的step3.bindMapperForNamespace()注册mapper接口。
@@ -1334,4 +1336,731 @@ public enum SqlCommandType {
 
 # 3.数据读写阶段——Mybatis接口层
 
+## 3.1 策略模式
+
+策略模式（Strategy Pattern）策略模式定义了一系列的算法，并将每一个算法封装起来，而且使他们可以相互替换，让算法独立于使用它的客户而独立变化。
+
+策略模式的使用场景：
+
+* 针对同一类型问题的多种处理方式，仅仅是具体行为有差别时； 
+* 出现同一抽象类有多个子类，而又需要使用 if-else 或者 switch-case 来选择具体子类时。
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/策略模式.png" width="420px" > </div><br>
+
+策略模式的使用：
+* 通过配置文件来加载数据源的不同实现（UNPOOLED、POOLED、JNDI）
+* Spring中通过@注解来更换不同的实现
+
+## 3.2 SqlSession
+
+SqlSession是MyBaits对外提供的最关键的核心接口，通过它可以执行数据库读写命令、获取映射器、管理事务等。
+
+```
+public class DefaultSqlSession implements SqlSession {
+
+  private final Configuration configuration;//configuration对象，全局唯一
+  private final Executor executor;//底层依赖的excutor对象
+
+  private final boolean autoCommit;//是否自动提交事务
+  private boolean dirty;//当前缓存是否有脏数据
+  private List<Cursor<?>> cursorList;
+```
+
+样例代码：
+
+```
+    @Test
+    public void quickStart() {
+        SqlSession sqlSession = sqlSessionFactory.openSession();
+        TUserMapperQuickStart mapper = sqlSession.getMapper(TUserMapperQuickStart.class);
+        TUserQuickStart user = mapper.selectByPrimaryKey(1);
+        System.out.println(user);
+    }
+```
+
+DefaultSqlSessionFactory.openSession()方法如下：
+
+```
+  @Override
+  public SqlSession openSession() {
+    return openSessionFromDataSource(configuration.getDefaultExecutorType(), null, false);
+  }
+
+
+  //从数据源获取数据库连接
+  private SqlSession openSessionFromDataSource(ExecutorType execType, TransactionIsolationLevel level, boolean autoCommit) {
+    Transaction tx = null;
+    try {
+    	//获取mybatis配置文件中的environment对象
+      final Environment environment = configuration.getEnvironment();
+      //从environment获取transactionFactory对象
+      final TransactionFactory transactionFactory = getTransactionFactoryFromEnvironment(environment);
+      //创建事务对象
+      tx = transactionFactory.newTransaction(environment.getDataSource(), level, autoCommit);
+      //根据配置创建executor
+      final Executor executor = configuration.newExecutor(tx, execType);
+      //创建DefaultSqlSession
+      return new DefaultSqlSession(configuration, executor, autoCommit);
+    } catch (Exception e) {
+      closeTransaction(tx); // may have fetched a connection so lets call close()
+      throw ExceptionFactory.wrapException("Error opening session.  Cause: " + e, e);
+    } finally {
+      ErrorContext.instance().reset();
+    }
+  }
+
+```
+
+Configuration.newExecutor()如下：
+
+```
+  public Executor newExecutor(Transaction transaction, ExecutorType executorType) {
+    executorType = executorType == null ? defaultExecutorType : executorType;
+    executorType = executorType == null ? ExecutorType.SIMPLE : executorType;
+    Executor executor;
+    if (ExecutorType.BATCH == executorType) {
+      executor = new BatchExecutor(this, transaction);
+    } else if (ExecutorType.REUSE == executorType) {
+      executor = new ReuseExecutor(this, transaction);
+    } else {
+      executor = new SimpleExecutor(this, transaction);
+    }
+    //如果有<cache>节点，通过装饰器，添加二级缓存的能力
+    if (cacheEnabled) {
+      executor = new CachingExecutor(executor);
+    }
+    //通过interceptorChain遍历所有的插件为executor增强，添加插件的功能
+    executor = (Executor) interceptorChain.pluginAll(executor);
+    return executor;
+  }
+```
+
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/SqlSession.png" width="620px" > </div><br>
+
+SqlSession查询接口嵌套关系如下：
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/SqlSession查询接口嵌套关系.jpg" width="720px" > </div><br>
+
+DefaultSqlSession：
+
+```
+  public <T> T selectOne(String statement, Object parameter) {
+    // Popular vote was to return null on 0 results and throw exception on too many.
+    List<T> list = this.<T>selectList(statement, parameter);
+    if (list.size() == 1) {
+      return list.get(0);
+    } else if (list.size() > 1) {
+      throw new TooManyResultsException("Expected one result (or null) to be returned by selectOne(), but found: " + list.size());
+    } else {
+      return null;
+    }
+  }
+
+
+  @Override
+  public <E> List<E> selectList(String statement, Object parameter) {
+    return this.selectList(statement, parameter, RowBounds.DEFAULT);
+  }
+
+
+  @Override
+  public <E> List<E> selectList(String statement, Object parameter, RowBounds rowBounds) {
+    try {
+      //从configuration中获取要执行的sql语句的配置信息
+      MappedStatement ms = configuration.getMappedStatement(statement);
+      //通过executor执行语句，并返回指定的结果集
+      return executor.query(ms, wrapCollection(parameter), rowBounds, Executor.NO_RESULT_HANDLER);
+    } catch (Exception e) {
+      throw ExceptionFactory.wrapException("Error querying database.  Cause: " + e, e);
+    } finally {
+      ErrorContext.instance().reset();
+    }
+  }
+```
+
+最终都是通过Executor来执行。
+
 # 4.核心组件Executor
+
+## 4.1 模板模式
+
+一个抽象类公开定义了执行它的方法的方式/模板。它的子类可以按需要重写方法实现，但调用将以抽象类中定义的方式进行。定义一个操作中的算法的骨架，而将一些步骤延迟到子类中。模板方法使得子类可以不改变一个算法的结构即可重定义该算法的某些特定实现。
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/模板模式.png" width="520px" > </div><br>
+
+使用场景：遇到由一系列步骤构成的过程需要执行，这个过程从高层次上看是相同的，但是有些步骤的实现可能不同，这个时候就需要考虑用模板模式了。比如：Executor查询操作流程。
+
+## 4.2 Executor
+Executor是MyBaits核心接口之一，定义了数据库操作最基本的方法，SqlSession的功能都是基于它来实现的。
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/Executor.png" width="520px" > </div><br>
+
+BaseExecutor：抽象类，实现了executor接口的大部分方法，主要提供了缓存管理和事务管理的能力，其他子类需要实现的抽象方法为：doUpdate,doQuery等方法。
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/BaseExecutor.query.png" width="620px" > </div><br>
+
+
+调用链如下：
+
+```
+  public <E> List<E> selectList(String statement, Object parameter, RowBounds rowBounds) {
+    try {
+      //从configuration中获取要执行的sql语句的配置信息
+      MappedStatement ms = configuration.getMappedStatement(statement);
+      //通过executor执行语句，并返回指定的结果集
+      return executor.query(ms, wrapCollection(parameter), rowBounds, Executor.NO_RESULT_HANDLER);
+    } catch (Exception e) {
+      throw ExceptionFactory.wrapException("Error querying database.  Cause: " + e, e);
+    } finally {
+      ErrorContext.instance().reset();
+    }
+  }
+```
+
+CachingExecutor.query()方法——二级缓存：
+
+```
+  @Override
+  public <E> List<E> query(MappedStatement ms, Object parameterObject, RowBounds rowBounds, ResultHandler resultHandler) throws SQLException {
+	//获取sql语句信息，包括占位符，参数等信息
+    BoundSql boundSql = ms.getBoundSql(parameterObject);
+  //拼装缓存的key值
+    CacheKey key = createCacheKey(ms, parameterObject, rowBounds, boundSql);
+    return query(ms, parameterObject, rowBounds, resultHandler, key, boundSql);
+  }
+
+  @Override
+  public <E> List<E> query(MappedStatement ms, Object parameterObject, RowBounds rowBounds, ResultHandler resultHandler, CacheKey key, BoundSql boundSql)
+      throws SQLException {
+	//从MappedStatement中获取二级缓存
+    Cache cache = ms.getCache();
+    if (cache != null) {
+      flushCacheIfRequired(ms);
+      if (ms.isUseCache() && resultHandler == null) {
+        ensureNoOutParams(ms, boundSql);
+        @SuppressWarnings("unchecked")
+        List<E> list = (List<E>) tcm.getObject(cache, key);//从二级缓存中获取数据
+        if (list == null) {
+          //二级缓存为空，才会调用BaseExecutor.query
+          list = delegate.<E> query(ms, parameterObject, rowBounds, resultHandler, key, boundSql);
+          tcm.putObject(cache, key, list); // issue #578 and #116
+        }
+        return list;
+      }
+    }
+    return delegate.<E> query(ms, parameterObject, rowBounds, resultHandler, key, boundSql);
+  }
+
+```
+
+BaseExecutor.query()方法——一级缓存：
+
+```
+  @Override
+  public <E> List<E> query(MappedStatement ms, Object parameter, RowBounds rowBounds, ResultHandler resultHandler, CacheKey key, BoundSql boundSql) throws SQLException {
+    ErrorContext.instance().resource(ms.getResource()).activity("executing a query").object(ms.getId());
+    if (closed) {//检查当前executor是否关闭
+      throw new ExecutorException("Executor was closed.");
+    }
+    if (queryStack == 0 && ms.isFlushCacheRequired()) {//非嵌套查询，并且FlushCache配置为true，则需要清空一级缓存
+      clearLocalCache();
+    }
+    List<E> list;
+    try {
+      queryStack++;//查询层次加一
+      list = resultHandler == null ? (List<E>) localCache.getObject(key) : null;//查询以及缓存
+      if (list != null) {
+    	 //针对调用存储过程的结果处理
+        handleLocallyCachedOutputParameters(ms, key, parameter, boundSql);
+      } else {
+    	 //缓存未命中，从数据库加载数据
+        list = queryFromDatabase(ms, parameter, rowBounds, resultHandler, key, boundSql);
+      }
+    } finally {
+      queryStack--;
+    }
+    
+    
+    if (queryStack == 0) {
+      for (DeferredLoad deferredLoad : deferredLoads) {//延迟加载处理
+        deferredLoad.load();
+      }
+      // issue #601
+      deferredLoads.clear();
+      if (configuration.getLocalCacheScope() == LocalCacheScope.STATEMENT) {//如果当前sql的一级缓存配置为STATEMENT，查询完既清空一集缓存
+        // issue #482
+        clearLocalCache();
+      }
+    }
+    return list;
+  }
+
+
+
+
+
+  //真正访问数据库获取结果的方法
+  private <E> List<E> queryFromDatabase(MappedStatement ms, Object parameter, RowBounds rowBounds, ResultHandler resultHandler, CacheKey key, BoundSql boundSql) throws SQLException {
+    List<E> list;
+    localCache.putObject(key, EXECUTION_PLACEHOLDER);//在缓存中添加占位符
+    try {
+      //调用抽象方法doQuery，方法查询数据库并返回结果，可选的实现包括：simple、reuse、batch
+      list = doQuery(ms, parameter, rowBounds, resultHandler, boundSql);
+    } finally {
+      localCache.removeObject(key);//在缓存中删除占位符
+    }
+    localCache.putObject(key, list);//将真正的结果对象添加到一级缓存
+    if (ms.getStatementType() == StatementType.CALLABLE) {//如果是调用存储过程
+      localOutputParameterCache.putObject(key, parameter);//缓存输出类型结果参数
+    }
+    return list;
+  }
+```
+
+这里的doQuery()就是子类需要实现的，比如这里是SimpleExecutor.doQuery()：
+
+```
+  @Override
+  //查询的实现
+  public <E> List<E> doQuery(MappedStatement ms, Object parameter, RowBounds rowBounds, ResultHandler resultHandler, BoundSql boundSql) throws SQLException {
+    Statement stmt = null;
+    try {
+      Configuration configuration = ms.getConfiguration();//获取configuration对象
+      //创建StatementHandler对象，
+      StatementHandler handler = configuration.newStatementHandler(wrapper, ms, parameter, rowBounds, resultHandler, boundSql);
+      //StatementHandler对象创建stmt,并使用parameterHandler对占位符进行处理
+      stmt = prepareStatement(handler, ms.getStatementLog());
+      //通过statementHandler对象调用ResultSetHandler将结果集转化为指定对象返回
+      return handler.<E>query(stmt, resultHandler);
+    } finally {
+      closeStatement(stmt);
+    }
+  }
+```
+
+## 4.3 Executor的三个实现类解读
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/SimpleExecutor.png" width="820px" > </div><br>
+
+* SimpleExecutor：默认配置，使用PrepareStatement对象访问数据库，每次访问都要创建新的PrepareStatement对象；
+* ReuseExecutor：使用预编译PrepareStatement对象访问数据库，访问时，会重用缓存中的statement对象；
+* BatchExecutor：实现批量执行多条SQL语句的能力
+
+通过对SimpleExecutor doQuery()方法的解读发现，Executor是个指挥官，它在调度三个小弟工作：
+
+* StatementHandler：它的作用是使用数据库的Statement或PrepareStatement执行操作，启承上启下作用；
+* ParameterHandler：对预编译的SQL语句进行参数设置，SQL语句中的的占位符“？”都对应BoundSql.parameterMappings集合中的一个元素，在该对象中记录了对应的参数名称以及该参数的相关属性
+* ResultSetHandler：对数据库返回的结果集（ResultSet）进行封装，返回用户指定的实体类型
+
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/Executor内部运作过程.png" width="620px" > </div><br>
+
+
+```
+  @Override
+  //查询的实现
+  public <E> List<E> doQuery(MappedStatement ms, Object parameter, RowBounds rowBounds, ResultHandler resultHandler, BoundSql boundSql) throws SQLException {
+    Statement stmt = null;
+    try {
+      Configuration configuration = ms.getConfiguration();//获取configuration对象
+      //创建StatementHandler对象，
+      StatementHandler handler = configuration.newStatementHandler(wrapper, ms, parameter, rowBounds, resultHandler, boundSql);
+      //StatementHandler对象创建stmt,并使用parameterHandler对占位符进行处理
+      stmt = prepareStatement(handler, ms.getStatementLog());
+      //通过statementHandler对象调用ResultSetHandler将结果集转化为指定对象返回
+      return handler.<E>query(stmt, resultHandler);
+    } finally {
+      closeStatement(stmt);
+    }
+  }
+
+
+
+  //创建Statement
+  private Statement prepareStatement(StatementHandler handler, Log statementLog) throws SQLException {
+    Statement stmt;
+    //获取connection对象的动态代理，添加日志能力；
+    Connection connection = getConnection(statementLog);
+    //通过不同的StatementHandler，利用connection创建（prepare）Statement
+    stmt = handler.prepare(connection, transaction.getTimeout());
+    //使用parameterHandler处理占位符
+    handler.parameterize(stmt);
+    return stmt;
+  }
+```
+
+这里返回的PreparedStatement为ClientPreparedStatement：
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/ClientPreparedStatement.png" width="520px" > </div><br>
+
+调用至BaseStatementHandler.prepare()方法：
+
+```
+  @Override
+  //使用模板模式，定义了获取Statement的步骤，其子类实现实例化Statement的具体的方式；
+  public Statement prepare(Connection connection, Integer transactionTimeout) throws SQLException {
+    ErrorContext.instance().sql(boundSql.getSql());
+    Statement statement = null;
+    try {
+      //通过不同的子类实例化不同的Statement，分为三类：simple(statment)、prepare(prepareStatement)、callable(CallableStatementHandler)
+      statement = instantiateStatement(connection);
+      //设置超时时间
+      setStatementTimeout(statement, transactionTimeout);
+      //设置数据集大小
+      setFetchSize(statement);
+      return statement;
+    } catch (SQLException e) {
+      closeStatement(statement);
+      throw e;
+    } catch (Exception e) {
+      closeStatement(statement);
+      throw new ExecutorException("Error preparing statement.  Cause: " + e, e);
+    }
+  }
+```
+
+调用至PreparedStatementHandler.instantiateStatement()方法：
+
+```
+  @Override
+  //使用底层的prepareStatement对象来完成对数据库的操作
+  protected Statement instantiateStatement(Connection connection) throws SQLException {
+    String sql = boundSql.getSql();
+    //根据mappedStatement.getKeyGenerator字段，创建prepareStatement
+    if (mappedStatement.getKeyGenerator() instanceof Jdbc3KeyGenerator) {//对于insert语句
+      String[] keyColumnNames = mappedStatement.getKeyColumns();
+      if (keyColumnNames == null) {
+    	//返回数据库生成的主键
+        return connection.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS);
+      } else {
+    	//返回数据库生成的主键填充至keyColumnNames中指定的列
+        return connection.prepareStatement(sql, keyColumnNames);
+      }
+    } else if (mappedStatement.getResultSetType() != null) {
+     //设置结果集是否可以滚动以及其游标是否可以上下移动，设置结果集是否可更新
+      return connection.prepareStatement(sql, mappedStatement.getResultSetType().getValue(), ResultSet.CONCUR_READ_ONLY);
+    } else {
+      //创建普通的prepareStatement对象
+      return connection.prepareStatement(sql);
+    }
+  }
+```
+
+创建好语句，设置好参数（占位符）后，执行语句查询PreparedStatementHandler.query：
+
+```
+  @Override
+  public <E> List<E> query(Statement statement, ResultHandler resultHandler) throws SQLException {
+    PreparedStatement ps = (PreparedStatement) statement;
+    ps.execute();
+    return resultSetHandler.<E> handleResultSets(ps);
+  }
+```
+
+这里的操作流程说明：
+
+* step1.ps.execute()会执行ClientPreparedStatement.execute()，会将执行结果放在StatementImpl.results中
+* step2.handleResultSets(ps)的getFirstResultSet(stmt)和getNextResultSet(stmt)会从StatementImpl.results获取结果。
+
+```
+public class StatementImpl implements JdbcStatement {
+
+    /** The current results */
+    protected ResultSetInternalMethods results = null;
+```
+
+
+执行完以后，调用DefaultResultSetHandler.handleResultSets()处理结果。
+
+```
+  @Override
+  public List<Object> handleResultSets(Statement stmt) throws SQLException {
+    ErrorContext.instance().activity("handling results").object(mappedStatement.getId());
+    //用于保存结果集对象
+    final List<Object> multipleResults = new ArrayList<>();
+
+    int resultSetCount = 0;
+    //statment可能返回多个结果集对象，这里先取出第一个结果集
+    ResultSetWrapper rsw = getFirstResultSet(stmt);
+    //获取结果集对应resultMap，本质就是获取字段与java属性的映射规则
+    List<ResultMap> resultMaps = mappedStatement.getResultMaps();
+    int resultMapCount = resultMaps.size();
+    validateResultMapsCount(rsw, resultMapCount);//结果集和resultMap不能为空，为空抛出异常
+    while (rsw != null && resultMapCount > resultSetCount) {
+     //获取当前结果集对应的resultMap
+      ResultMap resultMap = resultMaps.get(resultSetCount);
+      //根据映射规则（resultMap）对结果集进行转化，转换成目标对象以后放入multipleResults中
+      handleResultSet(rsw, resultMap, multipleResults, null);
+      rsw = getNextResultSet(stmt);//获取下一个结果集
+      cleanUpAfterHandlingResultSet();//清空nestedResultObjects对象
+      resultSetCount++;
+    }
+    //获取多结果集。多结果集一般出现在存储过程的执行，存储过程返回多个resultset，
+    //mappedStatement.resultSets属性列出多个结果集的名称，用逗号分割；
+    //多结果集的处理不是重点，暂时不分析
+    String[] resultSets = mappedStatement.getResultSets();
+    if (resultSets != null) {
+      while (rsw != null && resultSetCount < resultSets.length) {
+        ResultMapping parentMapping = nextResultMaps.get(resultSets[resultSetCount]);
+        if (parentMapping != null) {
+          String nestedResultMapId = parentMapping.getNestedResultMapId();
+          ResultMap resultMap = configuration.getResultMap(nestedResultMapId);
+          handleResultSet(rsw, resultMap, null, parentMapping);
+        }
+        rsw = getNextResultSet(stmt);
+        cleanUpAfterHandlingResultSet();
+        resultSetCount++;
+      }
+    }
+
+    return collapseSingleResultList(multipleResults);
+  }
+```
+
+
+### 4.3.1 上面整个查询和转换流程等价于jdbc操作流程
+
+```
+            String sql;
+            sql = "SELECT * FROM t_user where user_name= ? ";
+            stmt = conn.prepareStatement(sql);
+            stmt.setString(1, "lison");
+            System.out.println(stmt.toString());//打印sql
+            ResultSet rs = stmt.executeQuery();
+
+
+            // STEP 5: 从resultSet中获取数据并转化成bean
+            while (rs.next()) {
+                System.out.println("------------------------------");
+                // Retrieve by column name
+                TUser user = new TUser();
+//				user.setId(rs.getInt("id"));
+//				user.setUserName(rs.getString("user_name"));
+                user.setRealName(rs.getString("real_name"));
+                user.setSex(rs.getByte("sex"));
+                user.setMobile(rs.getString("mobile"));
+                user.setEmail(rs.getString("email"));
+                user.setNote(rs.getString("note"));
+
+                System.out.println(user.toString());
+
+                users.add(user);
+            }
+```
+
+### 4.3.2 StatementHandler分析
+
+StatementHandler完成Mybatis最核心的工作，也是Executor实现的基础；功能包括：创建statement对象，为sql语句绑定参数，执行增删改查等SQL语句、将结果映射集进行转化。
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/StatementHandler.png" width="520px" > </div><br>
+
+
+* BaseStatementHandler：所有子类的抽象父类，定义了初始化statement的操作顺序，由子类实现具体的实例化不同的statement（模板模式）；
+* RoutingStatementHandler：Excutor组件真正实例化的子类，使用静态
+* 代理模式，根据上下文决定创建哪个具体实体类；
+* SimpleStatmentHandler ：使用statement对象访问数据库，无须参数化；
+* PreparedStatmentHandler ：使用预编译PrepareStatement对象访问数据库；
+* CallableStatmentHandler ：调用存储过程
+
+
+```
+public class RoutingStatementHandler implements StatementHandler {
+
+  private final StatementHandler delegate;//底层封装的真正的StatementHandler对象
+
+  public RoutingStatementHandler(Executor executor, MappedStatement ms, Object parameter, RowBounds rowBounds, ResultHandler resultHandler, BoundSql boundSql) {
+    //RoutingStatementHandler最主要的功能就是根据mappedStatment的配置，生成一个对应的StatementHandler对象并赋值给delegate
+    switch (ms.getStatementType()) {
+      case STATEMENT:
+        delegate = new SimpleStatementHandler(executor, ms, parameter, rowBounds, resultHandler, boundSql);
+        break;
+      case PREPARED:
+        delegate = new PreparedStatementHandler(executor, ms, parameter, rowBounds, resultHandler, boundSql);
+        break;
+      case CALLABLE:
+        delegate = new CallableStatementHandler(executor, ms, parameter, rowBounds, resultHandler, boundSql);
+        break;
+      default:
+        throw new ExecutorException("Unknown statement type: " + ms.getStatementType());
+    }
+
+  }
+```
+
+### 4.3.3 ResultSetHandler分析
+
+ResultSetHandler将从数据库查询得到的结果按照映射配置文件的映射规则，映射成相应的结果集对象。
+
+核心操作在DefaultResultSetHandler.handleResultSets()的handleResultSet中：
+
+```
+  private void handleResultSet(ResultSetWrapper rsw, ResultMap resultMap, List<Object> multipleResults, ResultMapping parentMapping) throws SQLException {
+    try {
+      if (parentMapping != null) {//处理多结果集的嵌套映射
+        handleRowValues(rsw, resultMap, null, RowBounds.DEFAULT, parentMapping);
+      } else {
+        if (resultHandler == null) {//如果resultHandler为空，实例化一个人默认的resultHandler
+          DefaultResultHandler defaultResultHandler = new DefaultResultHandler(objectFactory);
+          //对ResultSet进行映射，映射结果暂存在resultHandler中
+          handleRowValues(rsw, resultMap, defaultResultHandler, rowBounds, null);
+          //将暂存在resultHandler中的映射结果，填充到multipleResults
+          multipleResults.add(defaultResultHandler.getResultList());
+        } else {
+          //使用指定的rusultHandler进行转换
+          handleRowValues(rsw, resultMap, resultHandler, rowBounds, null);
+        }
+      }
+    } finally {
+      // issue #228 (close resultsets)
+      //调用resultset.close()关闭结果集
+      closeResultSet(rsw.getResultSet());
+    }
+  }
+
+```
+
+```
+  public void handleRowValues(ResultSetWrapper rsw, ResultMap resultMap, ResultHandler<?> resultHandler, RowBounds rowBounds, ResultMapping parentMapping) throws SQLException {
+    if (resultMap.hasNestedResultMaps()) {//处理有嵌套resultmap的情况
+      ensureNoRowBounds();
+      checkResultHandler();
+      handleRowValuesForNestedResultMap(rsw, resultMap, resultHandler, rowBounds, parentMapping);
+    } else {//处理没有嵌套resultmap的情况
+      handleRowValuesForSimpleResultMap(rsw, resultMap, resultHandler, rowBounds, parentMapping);
+    }
+  }
+```
+
+
+```
+  //简单映射处理
+  private void handleRowValuesForSimpleResultMap(ResultSetWrapper rsw, ResultMap resultMap, ResultHandler<?> resultHandler, RowBounds rowBounds, ResultMapping parentMapping)
+      throws SQLException {
+	//创建结果上下文，所谓的上下文就是专门在循环中缓存结果对象的
+    DefaultResultContext<Object> resultContext = new DefaultResultContext<>();
+    //1.根据分页信息，定位到指定的记录
+    skipRows(rsw.getResultSet(), rowBounds);
+    //2.shouldProcessMoreRows判断是否需要映射后续的结果，实际还是翻页处理，避免超过limit
+    while (shouldProcessMoreRows(resultContext, rowBounds) && rsw.getResultSet().next()) {
+      //3.进一步完善resultMap信息，主要是处理鉴别器的信息
+      ResultMap discriminatedResultMap = resolveDiscriminatedResultMap(rsw.getResultSet(), resultMap, null);
+      //4.读取resultSet中的一行记录并进行映射，转化并返回目标对象
+      Object rowValue = getRowValue(rsw, discriminatedResultMap);
+      //5.保存映射结果对象
+      storeObject(resultHandler, resultContext, rowValue, parentMapping, rsw.getResultSet());
+    }
+  }
+```
+
+```
+  //4.读取resultSet中的一行记录并进行映射，转化并返回目标对象
+  private Object getRowValue(ResultSetWrapper rsw, ResultMap resultMap) throws SQLException {
+    final ResultLoaderMap lazyLoader = new ResultLoaderMap();
+    //4.1 根据resultMap的type属性，实例化目标对象
+    Object rowValue = createResultObject(rsw, resultMap, lazyLoader, null);
+    if (rowValue != null && !hasTypeHandlerForResultObject(rsw, resultMap.getType())) {
+      //4.2 对目标对象进行封装得到metaObjcect,为后续的赋值操作做好准备
+      final MetaObject metaObject = configuration.newMetaObject(rowValue);
+      boolean foundValues = this.useConstructorMappings;//取得是否使用构造函数初始化属性值
+      if (shouldApplyAutomaticMappings(resultMap, false)) {//是否使用自动映射
+    	 //4.3一般情况下 autoMappingBehavior默认值为PARTIAL，对未明确指定映射规则的字段进行自动映射
+        foundValues = applyAutomaticMappings(rsw, resultMap, metaObject, null) || foundValues;
+      }
+       //4.4 映射resultMap中明确指定需要映射的列
+      foundValues = applyPropertyMappings(rsw, resultMap, metaObject, lazyLoader, null) || foundValues;
+      foundValues = lazyLoader.size() > 0 || foundValues;
+      //4.5 如果没有一个映射成功的属性，则根据<returnInstanceForEmptyRow>的配置返回null或者结果对象
+      rowValue = foundValues || configuration.isReturnInstanceForEmptyRow() ? rowValue : null;
+    }
+    return rowValue;
+  }
+```
+
+```
+  private boolean applyPropertyMappings(ResultSetWrapper rsw, ResultMap resultMap, MetaObject metaObject, ResultLoaderMap lazyLoader, String columnPrefix)
+      throws SQLException {
+	//从resultMap中获取明确需要转换的列名集合
+    final List<String> mappedColumnNames = rsw.getMappedColumnNames(resultMap, columnPrefix);
+    boolean foundValues = false;
+    //获取ResultMapping集合
+    final List<ResultMapping> propertyMappings = resultMap.getPropertyResultMappings();
+    for (ResultMapping propertyMapping : propertyMappings) {
+      String column = prependPrefix(propertyMapping.getColumn(), columnPrefix);//获得列名，注意前缀的处理
+      if (propertyMapping.getNestedResultMapId() != null) {
+        // the user added a column attribute to a nested result map, ignore it
+    	//如果属性通过另外一个resultMap映射，则忽略
+        column = null;
+      }
+      if (propertyMapping.isCompositeResult()//如果是嵌套查询，column={prop1=col1,prop2=col2}
+          || (column != null && mappedColumnNames.contains(column.toUpperCase(Locale.ENGLISH)))//基本类型映射
+          || propertyMapping.getResultSet() != null) {//嵌套查询的结果
+    	//获得属性值
+        Object value = getPropertyMappingValue(rsw.getResultSet(), metaObject, propertyMapping, lazyLoader, columnPrefix);
+        // issue #541 make property optional
+        //获得属性名称
+        final String property = propertyMapping.getProperty();
+        if (property == null) {//属性名为空跳出循环
+          continue;
+        } else if (value == DEFERED) {//属性名为DEFERED，延迟加载的处理
+          foundValues = true;
+          continue;
+        }
+        if (value != null) {
+          foundValues = true;
+        }
+        if (value != null || (configuration.isCallSettersOnNulls() && !metaObject.getSetterType(property).isPrimitive())) {
+          // gcode issue #377, call setter on nulls (value is not 'found')
+          //通过metaObject为目标对象设置属性值
+          metaObject.setValue(property, value);
+        }
+      }
+    }
+    return foundValues;
+  }
+```
+
+#### 4.3.3.1 上面流程跟测试代码流程一致（使用反射基础组件完成）
+
+```
+	@Test
+	public void reflectionTest(){
+		
+		//反射工具类初始化
+		ObjectFactory objectFactory = new DefaultObjectFactory();
+		TUser user = objectFactory.create(TUser.class);
+		ObjectWrapperFactory objectWrapperFactory = new DefaultObjectWrapperFactory();
+		ReflectorFactory reflectorFactory = new DefaultReflectorFactory();
+		MetaObject metaObject = MetaObject.forObject(user, objectFactory, objectWrapperFactory, reflectorFactory);
+		
+
+		//模拟数据库行数据转化成对象
+		//1.模拟从数据库读取数据
+		Map<String, Object> dbResult = new HashMap<>();
+		dbResult.put("id", 1);
+		dbResult.put("user_name", "lison");
+		dbResult.put("real_name", "李晓宇");
+		TPosition tp = new TPosition();
+		tp.setId(1);
+		dbResult.put("position_id", tp);
+		//2.模拟映射关系
+		Map<String, String> mapper = new HashMap<String, String>();
+		mapper.put("id", "id");
+		mapper.put("userName", "user_name");
+		mapper.put("realName", "real_name");
+		mapper.put("position", "position_id");
+		
+		//3.使用反射工具类将行数据转换成pojo
+		BeanWrapper objectWrapper = (BeanWrapper) metaObject.getObjectWrapper();
+		
+		Set<Entry<String, String>> entrySet = mapper.entrySet();
+		for (Entry<String, String> colInfo : entrySet) {
+			String propName = colInfo.getKey();
+			Object propValue = dbResult.get(colInfo.getValue());
+			PropertyTokenizer proTokenizer = new PropertyTokenizer(propName);
+			objectWrapper.set(proTokenizer, propValue);
+		}
+		System.out.println(metaObject.getOriginalObject());
+		
+	}
+```
