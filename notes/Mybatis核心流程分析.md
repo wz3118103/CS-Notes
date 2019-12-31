@@ -841,9 +841,9 @@ public class MapperRegistry {
 
 ### 1.2.4 三种builder总结
 
-XMLConfigBuilder： 主要负责解析mybatis-config.xml；
-XMLMapperBuilder： 主要负责解析映射配置文件；
-XMLStatementBuilder： 主要负责解析映射配置文件中的SQL节点。
+* XMLConfigBuilder： 主要负责解析mybatis-config.xml；
+* XMLMapperBuilder： 主要负责解析映射配置文件；
+* XMLStatementBuilder： 主要负责解析映射配置文件中的SQL节点。
 
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/XMLConfigBuilder.png" width="520px" > </div><br>
 
