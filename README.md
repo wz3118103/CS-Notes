@@ -10,6 +10,7 @@
 ## JavaGuide
 
 - [JavaGuide整合](https://github.com/wz3118103/CS-Notes/tree/master/JavaGuide)
+- [JavaGuide/Java学习面试指南](https://snailclimb.gitee.io/javaguide/#/?id=java)
 
 ## 操作系统
 
