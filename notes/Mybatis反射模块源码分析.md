@@ -119,7 +119,7 @@ public class DefaultObjectFactory implements ObjectFactory, Serializable {
 
 ### 2.2.1 DefaultReflectorFactory及Reflector
 
-创建Reflector工程类，并带有缓存功能。
+创建Reflector工厂类，并带有缓存功能。
 
 ```
 public class DefaultReflectorFactory implements ReflectorFactory {
@@ -196,6 +196,24 @@ public class Reflector {
 查看BeanWrapper，封装了两个信息：
 * 实例化的对象object
 * 所属类信息metaClass
+
+其中metaClass是ReflectorFactory和Reflector的一个封装，也就是封装了整理后的类信息。
+
+```
+public class MetaClass {
+
+  private final ReflectorFactory reflectorFactory;
+  private final Reflector reflector;
+
+  private MetaClass(Class<?> type, ReflectorFactory reflectorFactory) {
+    this.reflectorFactory = reflectorFactory;
+    this.reflector = reflectorFactory.findForClass(type);
+  }
+
+  public static MetaClass forClass(Class<?> type, ReflectorFactory reflectorFactory) {
+    return new MetaClass(type, reflectorFactory);
+  }
+```
 
 ```
 public class BeanWrapper extends BaseWrapper {
