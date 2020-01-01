@@ -1,4 +1,16 @@
 
+## 简书笔记整理
+
+- [简书笔记整理](https://github.com/wz3118103/CS-Notes/tree/master/notes/简书笔记整理.md)
+
+## xmind笔记整理
+
+- [xmind笔记整理]()
+
+## JavaGuide
+
+- []()
+
 ## 操作系统
 
 - [计算机操作系统](https://github.com/wz3118103/CS-Notes/tree/master/notes/计算机操作系统%20-%20目录.md)
