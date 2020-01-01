@@ -5,11 +5,11 @@
 
 ## xmind笔记整理
 
-- [xmind笔记整理]()
+- [xmind笔记整理](https://github.com/wz3118103/CS-Notes/tree/master/xmind)
 
 ## JavaGuide
 
-- []()
+- [JavaGuide整合](https://github.com/wz3118103/CS-Notes/tree/master/JavaGuide)
 
 ## 操作系统
 
