@@ -614,3 +614,30 @@ public class Invocation {
 
 }
 ```
+
+# 4.分页插件PageHelper
+
+分页插件的使用；
+* 中文文档：https://github.com/pagehelper/Mybatis-PageHelper/blob/master/README_zh.md
+* 使用手册：https://github.com/pagehelper/Mybatis-PageHelper/blob/master/wikis/zh/HowToUse.md
+
+分页插件的注意事项；
+* 注意事项：https://github.com/pagehelper/Mybatis-PageHelper/blob/master/wikis/zh/Important.md
+
+
+## 4.1 实现原理
+
+* step1.首先生成count查询，查总数
+* step2.使用Limit ?, ?进行分页
+
+```
+2020-01-01 10:18:13.350 [main] DEBUG s.m.mapper.TUserMapper.selectByEmailAndSex1_COUNT - ==>  Preparing: SELECT count(0) FROM t_user a WHERE a.email LIKE CONCAT('%', ?, '%') AND a.sex = ? 
+2020-01-01 10:18:13.421 [main] DEBUG s.m.mapper.TUserMapper.selectByEmailAndSex1_COUNT - ==> Parameters: qq.com(String), 1(Byte)
+2020-01-01 10:18:13.552 [main] DEBUG s.m.mapper.TUserMapper.selectByEmailAndSex1_COUNT - <==      Total: 1
+sql语句： com.mysql.cj.jdbc.ClientPreparedStatement: SELECT count(0) FROM t_user a WHERE a.email LIKE CONCAT('%', 'qq.com', '%') AND a.sex = 1, 执行时间： 132毫秒， 超过阈值10
+
+
+2020-01-01 10:18:13.562 [main] DEBUG s.mybatis.mapper.TUserMapper.selectByEmailAndSex1 - ==>  Preparing: select id, user_name, real_name, sex, mobile, email, note, position_id from t_user a where a.email like CONCAT('%', ?, '%') and a.sex = ? LIMIT ?, ? 
+2020-01-01 10:18:13.563 [main] DEBUG s.mybatis.mapper.TUserMapper.selectByEmailAndSex1 - ==> Parameters: qq.com(String), 1(Byte), 2(Integer), 2(Integer)
+2020-01-01 10:18:13.634 [main] DEBUG s.mybatis.mapper.TUserMapper.selectByEmailAndSex1 - <==      Total: 2
+```
