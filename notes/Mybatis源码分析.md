@@ -146,7 +146,7 @@
     * step2.CachingExecutor.query()进行二级缓存查询
     * step3.调用SimpleExecutor/BatchExecutor的query()方法，该方法在父类BaseExecutor中实现，进行一级缓存查询
     * step4.最后才父类BaseExecutor.query()中调用doQuery()，才开始调用SimpleExecutor/BatchExecutor的doQuery()方法
-* 执行具体查询的四大组件，在SimpleExecutor.doQuery()方法中，Executor是个指挥官，它在调度三个小弟（StatementHandler、ParameterHandler和ResultSetHandler）工作
+* 执行具体查询的四大组件，在SimpleExecutor.doQuery()方法中，Executor是个指挥官，它调度三个小弟（StatementHandler、ParameterHandler和ResultSetHandler）工作
   - 在SimpleExecutor.prepareStatement()中，首先调用Connection connection = getConnection(statementLog);获取连接，并使用动态代理增强Connection，使得其有日志打印能力
     * BaseExecutor.getConnection()会调用transaction.getConnection()
     * JdbcTransaction.getConnection()调用该类的openConnection()
