@@ -116,6 +116,12 @@ SqlSessionFactoryBean是一个FactoryBean，每次都通过getObject()返回bean
 
     return this.sqlSessionFactory;
   }
+
+
+  @Override
+  public boolean isSingleton() {
+    return true;
+  }
 ```
 
 ## 2.2 InitializingBean
@@ -306,6 +312,11 @@ Mybatis中的配置除了settings不能移动到Spring中外，其他都可以�
   @Override
   public T getObject() throws Exception {
     return getSqlSession().getMapper(this.mapperInterface);
+  }
+
+  @Override
+  public boolean isSingleton() {
+    return true;
   }
 ```
 
