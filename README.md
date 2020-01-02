@@ -36,7 +36,9 @@
 
 ## Mybatis
 
+- [Mybatis使用](https://github.com/wz3118103/CS-Notes/blob/master/notes/Mybatis%E4%BD%BF%E7%94%A8.md)
 - [Mybatis源码分析](https://github.com/wz3118103/CS-Notes/blob/master/notes/Mybatis%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90.md)
+- [Mybatis与Spring集成](https://github.com/wz3118103/CS-Notes/blob/master/notes/Mybatis%E4%B8%8ESpring%E9%9B%86%E6%88%90.md)
 
 ## MongoDB
 
