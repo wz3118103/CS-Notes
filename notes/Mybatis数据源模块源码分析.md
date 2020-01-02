@@ -37,6 +37,84 @@
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/datasource包.jpg" width="320px" > </div><br>
 
 
+数据源模块的初始化：
+
+XMLConfigBuilder.parseConfiguration()方法中：
+
+```
+  private void parseConfiguration(XNode root) {
+    try {
+      //解析<environments>节点
+      environmentsElement(root.evalNode("environments"));
+```
+
+```
+  private void environmentsElement(XNode context) throws Exception {
+    if (context != null) {
+      if (environment == null) {
+        environment = context.getStringAttribute("default");
+      }
+      for (XNode child : context.getChildren()) {
+        String id = child.getStringAttribute("id");
+        if (isSpecifiedEnvironment(id)) {
+          TransactionFactory txFactory = transactionManagerElement(child.evalNode("transactionManager"));
+          DataSourceFactory dsFactory = dataSourceElement(child.evalNode("dataSource"));
+          DataSource dataSource = dsFactory.getDataSource();
+          Environment.Builder environmentBuilder = new Environment.Builder(id)
+              .transactionFactory(txFactory)
+              .dataSource(dataSource);
+          configuration.setEnvironment(environmentBuilder.build());
+        }
+      }
+    }
+  }
+```
+
+```
+  private DataSourceFactory dataSourceElement(XNode context) throws Exception {
+    if (context != null) {
+      String type = context.getStringAttribute("type");
+      Properties props = context.getChildrenAsProperties();
+      DataSourceFactory factory = (DataSourceFactory) resolveClass(type).newInstance();
+      factory.setProperties(props);
+      return factory;
+    }
+    throw new BuilderException("Environment declaration requires a DataSourceFactory.");
+  }
+```
+
+从上面代码可以看出，创建DataSourceFactory实例后，还需要根据其在xml中配置的属性，对DataSourceFactory进行属性的设置。
+
+以PooledDataSourceFactory为例，其继承的是UnpooledDataSourceFactory的setProperties方法，本质是给dataSource进行赋值：
+
+```
+  @Override
+  public void setProperties(Properties properties) {
+    Properties driverProperties = new Properties();
+    //创建DataSource相应的metaObject，方便赋值
+    MetaObject metaDataSource = SystemMetaObject.forObject(dataSource);
+    //遍历properties，将属性设置到DataSource中
+    for (Object key : properties.keySet()) {
+      String propertyName = (String) key;
+      if (propertyName.startsWith(DRIVER_PROPERTY_PREFIX)) {
+        String value = properties.getProperty(propertyName);
+        driverProperties.setProperty(propertyName.substring(DRIVER_PROPERTY_PREFIX_LENGTH), value);
+      } else if (metaDataSource.hasSetter(propertyName)) {
+        String value = (String) properties.get(propertyName);
+        Object convertedValue = convertValue(metaDataSource, propertyName, value);
+        metaDataSource.setValue(propertyName, convertedValue);
+      } else {
+        throw new DataSourceException("Unknown DataSource property: " + propertyName);
+      }
+    }
+    //设置DataSource.driverProperties属性
+    if (driverProperties.size() > 0) {
+      metaDataSource.setValue("driverProperties", driverProperties);
+    }
+  }
+```
+
+
 ## 3.1 DataSourceFactory
 
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/PooledDataSourceFactory.png" width="320px" > </div><br>
@@ -216,7 +294,7 @@ public class Driver extends NonRegisteringDriver implements java.sql.Driver {
 ```
 
 从如下代码可以看出，与手动获取连接的方式是一样的：
-* step1.区别加载了数据库驱动
+* step1.确保加载了数据库驱动
 * step2.从DriverManager.getConnection获取连接
 * step3.设置事务自动提交和隔离的属性
 
@@ -527,7 +605,7 @@ private static final Class<?>[] IFACES = new Class<?>[] { Connection.class };
   }
 ```
 
-* step3.当调用conn.close的时候，会触发proxyConnection的InvocationHandler.invoke方法，而这里InvocationHandler就是proxyConnection
+* step3.当调用conn.close的时候，会触发proxyConnection的InvocationHandler.invoke方法，而这里InvocationHandler就是PooledConnection
 
 ```
   @Override

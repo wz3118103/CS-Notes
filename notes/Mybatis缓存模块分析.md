@@ -327,7 +327,51 @@ CachingExecutor.query
   }
 ```
 
-在query方法中，最终调用到BaseExecutor的.queryFromDatabase，其中调用localCache.putObject存入缓存：
+在query方法中，注意ms.isFlushCacheRequired()会根据MappedStatement.flushCacheRequired是否清除一级缓存，这个是语句配置时候的flushCache属性：
+
+```
+  @SuppressWarnings("unchecked")
+  @Override
+  public <E> List<E> query(MappedStatement ms, Object parameter, RowBounds rowBounds, ResultHandler resultHandler, CacheKey key, BoundSql boundSql) throws SQLException {
+    ErrorContext.instance().resource(ms.getResource()).activity("executing a query").object(ms.getId());
+    if (closed) {//检查当前executor是否关闭
+      throw new ExecutorException("Executor was closed.");
+    }
+    if (queryStack == 0 && ms.isFlushCacheRequired()) {//非嵌套查询，并且FlushCache配置为true，则需要清空一级缓存
+      clearLocalCache();
+    }
+    List<E> list;
+    try {
+      queryStack++;//查询层次加一
+      list = resultHandler == null ? (List<E>) localCache.getObject(key) : null;//查询以及缓存
+      if (list != null) {
+    	 //针对调用存储过程的结果处理
+        handleLocallyCachedOutputParameters(ms, key, parameter, boundSql);
+      } else {
+    	 //缓存未命中，从数据库加载数据
+        list = queryFromDatabase(ms, parameter, rowBounds, resultHandler, key, boundSql);
+      }
+    } finally {
+      queryStack--;
+    }
+    
+    
+    if (queryStack == 0) {
+      for (DeferredLoad deferredLoad : deferredLoads) {//延迟加载处理
+        deferredLoad.load();
+      }
+      // issue #601
+      deferredLoads.clear();
+      if (configuration.getLocalCacheScope() == LocalCacheScope.STATEMENT) {//如果当前sql的一级缓存配置为STATEMENT，查询完既清空一集缓存
+        // issue #482
+        clearLocalCache();
+      }
+    }
+    return list;
+  }
+```
+
+最终调用到BaseExecutor的.queryFromDatabase，其中调用localCache.putObject存入缓存
 
 ```
   //真正访问数据库获取结果的方法
@@ -349,7 +393,7 @@ CachingExecutor.query
 
 ```
 
-其中localCache如下：
+其中localCache如下，localCache是在创建BaseExecutor时就创建了：
 
 ```
 public abstract class BaseExecutor implements Executor {
@@ -360,4 +404,227 @@ public abstract class BaseExecutor implements Executor {
   protected PerpetualCache localOutputParameterCache;//一级缓存用于缓存输出的结果
   protected Configuration configuration;//全局唯一configuration对象的引用
 
+
+  protected BaseExecutor(Configuration configuration, Transaction transaction) {
+    this.transaction = transaction;
+    this.deferredLoads = new ConcurrentLinkedQueue<>();
+    this.localCache = new PerpetualCache("LocalCache");
+    this.localOutputParameterCache = new PerpetualCache("LocalOutputParameterCache");
+    this.closed = false;
+    this.configuration = configuration;
+    this.wrapper = this;
+  }
+
+```
+
+
+Q.二级缓存在哪里使用？
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/二级缓存调用栈.jpg" width="520px" > </div><br>
+
+CachingExecutor.query()：
+
+```
+  @Override
+  public <E> List<E> query(MappedStatement ms, Object parameterObject, RowBounds rowBounds, ResultHandler resultHandler, CacheKey key, BoundSql boundSql)
+      throws SQLException {
+	//从MappedStatement中获取二级缓存
+    Cache cache = ms.getCache();
+    if (cache != null) {
+      flushCacheIfRequired(ms);
+      if (ms.isUseCache() && resultHandler == null) {
+        ensureNoOutParams(ms, boundSql);
+        @SuppressWarnings("unchecked")
+        List<E> list = (List<E>) tcm.getObject(cache, key);//从二级缓存中获取数据
+        if (list == null) {
+          //二级缓存为空，才会调用BaseExecutor.query
+          list = delegate.<E> query(ms, parameterObject, rowBounds, resultHandler, key, boundSql);
+          tcm.putObject(cache, key, list); // issue #578 and #116
+        }
+        return list;
+      }
+    }
+    return delegate.<E> query(ms, parameterObject, rowBounds, resultHandler, key, boundSql);
+  }
+```
+
+在MappedStatement中：
+
+```
+public final class MappedStatement {
+
+  private String resource;//节点的完整的id属性，包括命名空间
+  private Configuration configuration;
+  private String id;//节点的id属性
+  private Integer fetchSize;//节点的fetchSize属性,查询数据的条数
+  private Integer timeout;//节点的timeout属性，超时时间
+  private StatementType statementType;//节点的statementType属性,默认值：StatementType.PREPARED;疑问？
+  private ResultSetType resultSetType;//节点的resultSetType属性,jdbc知识
+  private SqlSource sqlSource;//节点中sql语句信息
+  private Cache cache;//对应的二级缓存
+```
+
+Q.二级缓存在哪里创建？
+
+在XMLMapperBuilder中：
+
+```
+  private void cacheElement(XNode context) throws Exception {
+    if (context != null) {
+      //获取cache节点的type属性，默认为PERPETUAL
+      String type = context.getStringAttribute("type", "PERPETUAL");
+      //找到type对应的cache接口的实现
+      Class<? extends Cache> typeClass = typeAliasRegistry.resolveAlias(type);
+      //读取eviction属性，既缓存的淘汰策略，默认LRU
+      String eviction = context.getStringAttribute("eviction", "LRU");
+      //根据eviction属性，找到装饰器
+      Class<? extends Cache> evictionClass = typeAliasRegistry.resolveAlias(eviction);
+      //读取flushInterval属性，既缓存的刷新周期
+      Long flushInterval = context.getLongAttribute("flushInterval");
+      //读取size属性，既缓存的容量大小
+      Integer size = context.getIntAttribute("size");
+     //读取readOnly属性，既缓存的是否只读
+      boolean readWrite = !context.getBooleanAttribute("readOnly", false);
+      //读取blocking属性，既缓存的是否阻塞
+      boolean blocking = context.getBooleanAttribute("blocking", false);
+      Properties props = context.getChildrenAsProperties();
+      //通过builderAssistant创建缓存对象，并添加至configuration
+      builderAssistant.useNewCache(typeClass, evictionClass, flushInterval, size, readWrite, blocking, props);
+    }
+  }
+```
+
+在MapperBuilderAssistant.useNewCache()：
+
+```
+  public Cache useNewCache(Class<? extends Cache> typeClass,
+      Class<? extends Cache> evictionClass,
+      Long flushInterval,
+      Integer size,
+      boolean readWrite,
+      boolean blocking,
+      Properties props) {
+	//经典的建造起模式，创建一个cache对象
+    Cache cache = new CacheBuilder(currentNamespace)
+        .implementation(valueOrDefault(typeClass, PerpetualCache.class))
+        .addDecorator(valueOrDefault(evictionClass, LruCache.class))
+        .clearInterval(flushInterval)
+        .size(size)
+        .readWrite(readWrite)
+        .blocking(blocking)
+        .properties(props)
+        .build();
+    //将缓存添加至configuration，注意二级缓存以命名空间为单位进行划分
+    configuration.addCache(cache);
+    currentCache = cache;
+    return cache;
+  }
+```
+
+会将Cache放到MapperBuilderAssistant.currentCache和Configuration的caches中去。
+
+```
+public class Configuration {
+
+ 
+  /*mapper文件中增删改查操作的注册中心*/
+  protected final Map<String, MappedStatement> mappedStatements = new StrictMap<>("Mapped Statements collection");
+  
+  /*mapper文件中配置cache节点的 二级缓存*/
+  protected final Map<String, Cache> caches = new StrictMap<>("Caches collection");
+```
+
+Q.二级缓存在哪里放入到MappedStatement中？
+
+在XMLMapperBuilder的configurationElement中：
+* 首先会在cacheElement()解析出二级缓存的配置，并放到MapperBuilderAssistant的currentCache中
+* 然后在构建语句buildStatementFromContext中，会将currentCache赋值给MappedStatement的cache
+
+```
+  private void configurationElement(XNode context) {
+    try {
+    	//获取mapper节点的namespace属性
+      String namespace = context.getStringAttribute("namespace");
+      if (namespace == null || namespace.equals("")) {
+        throw new BuilderException("Mapper's namespace cannot be empty");
+      }
+      //设置builderAssistant的namespace属性
+      builderAssistant.setCurrentNamespace(namespace);
+      //解析cache-ref节点
+      cacheRefElement(context.evalNode("cache-ref"));
+      //重点分析 ：解析cache节点----------------1-------------------
+      cacheElement(context.evalNode("cache"));
+      //解析parameterMap节点（已废弃）
+      parameterMapElement(context.evalNodes("/mapper/parameterMap"));
+      //重点分析 ：解析resultMap节点（基于数据结果去理解）----------------2-------------------
+      resultMapElements(context.evalNodes("/mapper/resultMap"));
+      //解析sql节点
+      sqlElement(context.evalNodes("/mapper/sql"));
+      //重点分析 ：解析select、insert、update、delete节点 ----------------3-------------------
+      buildStatementFromContext(context.evalNodes("select|insert|update|delete"));
+    } catch (Exception e) {
+      throw new BuilderException("Error parsing Mapper XML. The XML location is '" + resource + "'. Cause: " + e, e);
+    }
+  }
+```
+
+MapperBuilderAssistant中cache(currentCache)：
+
+```
+  public MappedStatement addMappedStatement(
+      String id,
+      SqlSource sqlSource,
+      StatementType statementType,
+      SqlCommandType sqlCommandType,
+      Integer fetchSize,
+      Integer timeout,
+      String parameterMap,
+      Class<?> parameterType,
+      String resultMap,
+      Class<?> resultType,
+      ResultSetType resultSetType,
+      boolean flushCache,
+      boolean useCache,
+      boolean resultOrdered,
+      KeyGenerator keyGenerator,
+      String keyProperty,
+      String keyColumn,
+      String databaseId,
+      LanguageDriver lang,
+      String resultSets) {
+
+    if (unresolvedCacheRef) {
+      throw new IncompleteElementException("Cache-ref not yet resolved");
+    }
+
+    id = applyCurrentNamespace(id, false);
+    boolean isSelect = sqlCommandType == SqlCommandType.SELECT;
+
+    MappedStatement.Builder statementBuilder = new MappedStatement.Builder(configuration, id, sqlSource, sqlCommandType)
+        .resource(resource)
+        .fetchSize(fetchSize)
+        .timeout(timeout)
+        .statementType(statementType)
+        .keyGenerator(keyGenerator)
+        .keyProperty(keyProperty)
+        .keyColumn(keyColumn)
+        .databaseId(databaseId)
+        .lang(lang)
+        .resultOrdered(resultOrdered)
+        .resultSets(resultSets)
+        .resultMaps(getStatementResultMaps(resultMap, resultType, id))
+        .resultSetType(resultSetType)
+        .flushCacheRequired(valueOrDefault(flushCache, !isSelect))
+        .useCache(valueOrDefault(useCache, isSelect))
+        .cache(currentCache);
+
+    ParameterMap statementParameterMap = getStatementParameterMap(parameterMap, parameterType, id);
+    if (statementParameterMap != null) {
+      statementBuilder.parameterMap(statementParameterMap);
+    }
+
+    MappedStatement statement = statementBuilder.build();
+    configuration.addMappedStatement(statement);
+    return statement;
+  }
 ```
