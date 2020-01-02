@@ -147,6 +147,7 @@
     * step3.调用SimpleExecutor/BatchExecutor的query()方法，该方法在父类BaseExecutor中实现，进行一级缓存查询
     * step4.最后才父类BaseExecutor.query()中调用doQuery()，才开始调用SimpleExecutor/BatchExecutor的doQuery()方法
 * 执行具体查询的四大组件，在SimpleExecutor.doQuery()方法中，Executor是个指挥官，它调度三个小弟（StatementHandler、ParameterHandler和ResultSetHandler）工作
+  - 驱动加载在配置文件解析阶段解析environments节点时就完成了，其会创建数据源工程，比如UnpooledDataSourceFactory，在其构造方法中会创建数据源UnpooledDataSource，在创建该数据源是，其静态代码块就加载了驱动
   - 在SimpleExecutor.prepareStatement()中，首先调用Connection connection = getConnection(statementLog);获取连接，并使用动态代理增强Connection，使得其有日志打印能力
     * BaseExecutor.getConnection()会调用transaction.getConnection()
     * JdbcTransaction.getConnection()调用该类的openConnection()
