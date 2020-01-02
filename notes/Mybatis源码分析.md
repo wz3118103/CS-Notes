@@ -155,6 +155,10 @@
   - 然后调用PreparedStatementHandler.parameterize(stmt)，其调用DefaultParameterHandler.setParameters((PreparedStatement) statement)对sql语句的占位符进行处理，也即设置参数
   - 最后调用PreparedStatementHandler.query()，执行查询语句，并使用反射模块将查询到的结果通过DefaultResultSetHandler.handleResultSets()赋值给POJO对象的相应属性
   
+Executor中执行查询的流程就是JDBC流程：
+
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/JDBC流程.jpg" width="520px" > </div><br>
+
 
 ## 5.1 配置加载阶段
 
