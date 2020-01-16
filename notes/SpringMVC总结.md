@@ -139,28 +139,28 @@
 
 # 1.springMVC之url和bean映射原理和源码解析-映射基本过程
 
-（1）springMVC配置映射，需要在xml配置文件中配置<mvc:annotation-driven >  </mvc:annotation-driven>
+详情参见[SpringMVC RequestMapping注解](https://github.com/wz3118103/CS-Notes/blob/master/notes/SpringMVC%20RequestMapping%E6%B3%A8%E8%A7%A3.md)
 
-（2）配置后，该配置将会交由org.springframework.web.servlet.config.MvcNamespaceHandler处理，该类会转交给org.springframework.web.servlet.config.AnnotationDrivenBeanDefinitionParser做解析。
+详情参见[SpringMVC resources静态资源配置研究](https://github.com/wz3118103/CS-Notes/blob/master/notes/SpringMVC%20resources%E9%9D%99%E6%80%81%E8%B5%84%E6%BA%90%E9%85%8D%E7%BD%AE%E7%A0%94%E7%A9%B6.md)
 
-（3）AnnotationDrivenBeanDefinitionParser做解析后，会向IOC容器中注册多个对象。其中有这个对象org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping
+详情参见[SpringMVC default-servlet-handler配置研究](https://github.com/wz3118103/CS-Notes/blob/master/notes/SpringMVC%20default-servlet-handler%E9%85%8D%E7%BD%AE%E7%A0%94%E7%A9%B6.md)
 
-（4）RequestMappingHandlerMapping对象在IOC实例化bean阶段，会调用该对象afterPropertiesSet()方法做url和bean的映射。
-
-（5）该映射是从IOC中找到标注有@Controller，@RequestMapping注解的bean，然后反射所有的方法Mehod对象和注解中配置的url值进行映射。
-
-（6）在org.springframework.web.servlet.DispatcherServlet初始化调用init()方法，在IOC解析，aop编制好后，会调用initStrategies(ApplicationContext context) 方法里调用initHandlerMappings(context)中。将IOC中所有实现HandlerMapping接口的bean注入到dispatcherServlet属性List<HandlerMapping> handlerMappings中
+* step1）springMVC配置映射，需要在xml配置文件中配置<mvc:annotation-driven >  </mvc:annotation-driven>
+* step2）配置后，该配置将会交由org.springframework.web.servlet.config.MvcNamespaceHandler处理，该类会转交给org.springframework.web.servlet.config.AnnotationDrivenBeanDefinitionParser做解析。
+* step3）AnnotationDrivenBeanDefinitionParser做解析后，会向IOC容器中注册多个对象。其中有这个对象org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping
+* step4）RequestMappingHandlerMapping对象在IOC实例化bean阶段，会调用该对象afterPropertiesSet()方法做url和bean的映射。
+* step5）该映射是从IOC中找到标注有@Controller，@RequestMapping注解的bean，然后反射所有的方法Mehod对象和注解中配置的url值进行映射。
+* step6）在org.springframework.web.servlet.DispatcherServlet初始化调用init()方法，在IOC解析，aop编制好后，会调用initStrategies(ApplicationContext context) 方法里调用initHandlerMappings(context)中。将IOC中所有实现HandlerMapping接口的bean注入到dispatcherServlet属性List<HandlerMapping> handlerMappings中
 
  
 # 2.springMVC拦截器的注入即应用的原理解析
 
-（1）MvcNamespaceHandler在解析<mvc:annotation-driven ></mvc:annotation-driven>时向IOC容器中注册RequestMappingHandlerMapping
+详情参见[SpringMVC interceptors插件研究](https://github.com/wz3118103/CS-Notes/blob/master/notes/SpringMVC%20interceptors%E6%8F%92%E4%BB%B6%E7%A0%94%E7%A9%B6.md)
 
-（2）MvcNamespaceHandler在解析<mvc:interceptors> </mvc:interceptors>时向IOC容器中注册一个个org.springframework.web.servlet.handler.MappedInterceptor拦截器对象
-
-（3）RequestMappingHandlerMapping类是实现ApplicationContextAware接口的类，会在实例化的时候执行setApplicationContext(ApplicationContext context)方法，该方法内部初始化拦截器.将IOC容器中所有的MappedInterceptor对象赋值给RequestMappingHandlerMapping类的继承下来的属性private final List<MappedInterceptor> mappedInterceptors = new ArrayList<MappedInterceptor>();中
-
-（4）未来在客户端发送请求，匹配到controller的时候会在RequestMappingHandlerMapping内部找到这个controller路径符合的拦截器，执行。并缓存起来。
+* step1）MvcNamespaceHandler在解析<mvc:annotation-driven ></mvc:annotation-driven>时向IOC容器中注册RequestMappingHandlerMapping
+* step2）MvcNamespaceHandler在解析<mvc:interceptors> </mvc:interceptors>时向IOC容器中注册一个个org.springframework.web.servlet.handler.MappedInterceptor拦截器对象
+* step3）RequestMappingHandlerMapping类是实现ApplicationContextAware接口的类，会在实例化的时候执行setApplicationContext(ApplicationContext context)方法，该方法内部初始化拦截器.将IOC容器中所有的MappedInterceptor对象赋值给RequestMappingHandlerMapping类的继承下来的属性private final List<MappedInterceptor> mappedInterceptors = new ArrayList<MappedInterceptor>();中
+* step4）未来在客户端发送请求，匹配到controller的时候会在RequestMappingHandlerMapping内部找到这个controller路径符合的拦截器，执行。并缓存起来。
 
  
 # 3.springMVC之请求数据注入Controller方法原理解析
