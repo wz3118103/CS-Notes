@@ -12,6 +12,10 @@
 - [JavaGuide整合](https://github.com/wz3118103/CS-Notes/tree/master/JavaGuide)
 - [JavaGuide/Java学习面试指南](https://snailclimb.gitee.io/javaguide/#/?id=java)
 
+## 常见题目整理
+
+- [常见题目整理](https://github.com/wz3118103/CS-Notes/tree/master/questions-notes)
+
 ## 操作系统
 
 - [计算机操作系统](https://github.com/wz3118103/CS-Notes/tree/master/notes/计算机操作系统%20-%20目录.md)
