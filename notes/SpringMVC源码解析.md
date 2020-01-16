@@ -108,14 +108,14 @@ public interface Servlet {
 * destroy：Servlet对象销毁之前调用
 
 
-## 1.2 DispatcherServlet继承体系
+## 2.2 DispatcherServlet继承体系
 
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/DispatcherServlet.png" width="820px" > </div><br>
 
 
-# 1.Servlet3.0
+# 3.Servlet3.0
 
-## 1.1 原生的servlet来处理 order的请求
+## 3.1 原生的servlet来处理 order的请求
 
 jsp页面：
 
@@ -144,7 +144,7 @@ public class JamesServlet  extends HttpServlet{
 }
 ```
 
-## 1.2 共享库和运行时插件
+## 3.2 共享库和运行时插件
 
 参考Servlet3.1规范8.2.4节：
 
@@ -164,7 +164,7 @@ ServletContainerInitializer初始化web容器：
 每个框架要使用ServletContainerInitializer就必须在对应的jar包的META-INF/services 目录创建一个名为javax.servlet.ServletContainerInitializer的文件，文件内容指定具体的ServletContainerInitializer实现类，那么，当web容器启动时就会运行这个初始化器做一些组件内的初始化工作。
 
 
-### 1.2.1 创建META-INF/services目录
+### 3.2.1 创建META-INF/services目录
 
 创建javax.servlet.ServletContainerInitializer文件：
 
@@ -172,7 +172,7 @@ ServletContainerInitializer初始化web容器：
 com.enjoy.sevlet.JamesServletContainerInitializer
 ```
 
-### 1.2.2 JamesServletContainerInitializer
+### 3.2.2 JamesServletContainerInitializer
 
 ```
 //容器启动的时候会将@HandlesTypes指定的这个类型下面的子类（实现类，子接口等）传递过来；
@@ -252,9 +252,9 @@ Disconnected from server
 ```
 
 
-# 2.SpringMVC注解
+# 4.SpringMVC注解
 
-## 2.1 不适用web.xml并引入相关依赖
+## 4.1 不适用web.xml并引入相关依赖
 
 ```
 	<dependencies>
@@ -286,7 +286,7 @@ Disconnected from server
 	</build>
 ```
 
-## 2.2 查看spring-web.jar包
+## 4.2 查看spring-web.jar包
 
 其META-INF/services/javax.servlet.ServletContainerInitializer中的内容是：
 
@@ -294,7 +294,7 @@ Disconnected from server
 org.springframework.web.SpringServletContainerInitializer
 ```
 
-## 2.3 SpringServletContainerInitializer
+## 4.3 SpringServletContainerInitializer
 
 ```
 @HandlesTypes(WebApplicationInitializer.class)
@@ -388,7 +388,7 @@ public class JamesWebAppInitializer extends AbstractAnnotationConfigDispatcherSe
 
 调用栈依次为：
 
-### 2.3.1 AbstractContextLoaderInitializer.onStartup()
+### 4.3.1 AbstractContextLoaderInitializer.onStartup()
 
 创建根容器。
 
@@ -425,7 +425,7 @@ public abstract class AbstractContextLoaderInitializer implements WebApplication
 
 ```
 
-### 2.3.2 AbstractDispatcherServletInitializer.onStartup()
+### 4.3.2 AbstractDispatcherServletInitializer.onStartup()
 
 DispatcherServlet初始化，创建子容器。
 
@@ -487,7 +487,7 @@ public abstract class AbstractDispatcherServletInitializer extends AbstractConte
 	}
 ```
 
-### 2.3.3 AbstractAnnotationConfigDispatcherServletInitializer创建根容器和子容器
+### 4.3.3 AbstractAnnotationConfigDispatcherServletInitializer创建根容器和子容器
 
 ```
 public abstract class AbstractAnnotationConfigDispatcherServletInitializer
@@ -538,7 +538,7 @@ root根容器与servlet容器的区别在哪呢？
 很明显，servlet的容器用来处理@Controller，视图解析，和web相关组件而root根容器主要针对服务层，和数据源DAO层及事务控制相关处理。
 
 
-## 2.4 JamesWebAppInitializer配置父子容器
+## 4.4 JamesWebAppInitializer配置父子容器
 
 ```
 //web容器启动的时候创建对象；调用方法来初始化容器以前前端控制器
@@ -569,7 +569,7 @@ public class JamesWebAppInitializer extends AbstractAnnotationConfigDispatcherSe
 }
 ```
 
-### 2.4.1 根容器处理service和dao层
+### 4.4.1 根容器处理service和dao层
 
 ```
 //Spring的容器不扫描controller;父容器
@@ -590,7 +590,7 @@ public class OrderService   {
 }
 ```
 
-### 2.4.2 servlet容器处理controller、视图解析及web相关
+### 4.4.2 servlet容器处理controller、视图解析及web相关
 
 ```
 //SpringMVC只扫描Controller；子容器
@@ -673,9 +673,9 @@ public class JamesInterceptor implements HandlerInterceptor{
 
 ```
 
-## 2.5 配置SpringMVC
+## 4.5 配置SpringMVC
 
-### 2.5.1 传统xml配置方式
+### 4.5.1 传统xml配置方式
 
 ```
 <?xml version="1.0" encoding="UTF-8"?>
@@ -744,7 +744,7 @@ public class JamesInterceptor implements HandlerInterceptor{
 </beans>
 ```
 
-### 2.5.2 使用注解配置
+### 4.5.2 使用注解配置
 
 ```
 //SpringMVC只扫描Controller；子容器
@@ -779,7 +779,7 @@ public class JamesAppConfig implements WebMvcConfigurer  {
 ```
 
 
-# 3.原生Servlet3.0异步请求
+# 5.原生Servlet3.0异步请求
 
 ```
 @WebServlet("/order")
@@ -818,7 +818,7 @@ Thread[http-nio-8080-exec-4,5,main] end..........
 ```
 
 
-## 3.1 获取异步对象
+## 5.1 获取异步对象
 
 参见Servlet3.1规范9.6节：
 
@@ -895,12 +895,12 @@ Thread[http-nio-8080-exec-3,5,main].............
 副线程结束……Thread[http-nio-8080-exec-3,5,main]end.....1578291459088
 ```
 
-## 3.2 异步请求原理
+## 5.2 异步请求原理
 
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/异步请求原理.png" width="620px" > </div><br>
 
 
-# 4.SpringMVC异步处理
+# 6.SpringMVC异步处理
 
 参见[官方文档](https://docs.spring.io/spring/docs/5.2.2.RELEASE/spring-framework-reference/web.html#mvc-ann-async)：
 
@@ -939,7 +939,7 @@ public Callable<String> processUpload(final MultipartFile file) {
 }
 ```
 
-## 4.1 Callable
+## 6.1 Callable
 
 ```
 @Controller
@@ -1022,7 +1022,7 @@ The DispatcherServlet is invoked again, and processing resumes with the asynchro
 
 
 
-## 4.2 DeferredResult
+## 6.2 DeferredResult
 
 <div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/订单需求.png" width="620px" > </div><br>
 

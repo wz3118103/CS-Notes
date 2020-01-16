@@ -341,8 +341,276 @@ Mybatis中的配置除了settings不能移动到Spring中外，其他都可以�
 
 ## 3.2 private TUserMapper userMapper为什么没有问题
 
-因为这里使用的是MapperFactoryBean，每次都是从getObject()中获取实例，而getObject()获取的都是新创建的代理对象，因此不会有作用域和生命周期的问题。
+* 在创建DAO层实例，实际上注入的都是MapperFactoryBean创建的代理类，其InvocationHandler是MapperProxy。
+* MapperFactoryBean有一个重要属性是sqlSessionTemplate，在设置其值是，会将sqlSessionFactory赋值给sqlSessionTemplate.sqlSessionFactory
+* 并且sqlSessionTemplate.sqlSessionProxy是SqlSession代理类，其InvocationHandler是SqlSessionInterceptor
+* 最终通过TUserMapper.query()方法，就会调用至代理类InvocationHandler——MapperProxy.invoke()方法
+  - mapperMethod.execute(sqlSession, args)
+  - sqlSession.selectOne(command.getName(), param)，这里sqlSession是SqlSessionTemplate，也即调用：
+  - this.sqlSessionProxy.selectOne(statement, parameter)
+  - 代理类会SqlSession sqlSession = getSqlSession()，这里会获取SqlSessionSqlSession session = sessionHolder(executorType, holder)，然后再进行具体调用
+  - method.invoke(sqlSession, args)这里就调整到DefaultSqlSession.selectOne()，也即Mybatis的流程
 
+### 3.2.1 MapperFactoryBean是个FactoryBean
+
+在创建DAO层实例，实际上创建的都是MapperFactoryBean创建的代理类，其InvocationHandler是MapperProxy。
+
+```
+Object beanInstance = doCreateBean(beanName, mbdToUse, args)
+```
+
+调用至：
+
+```
+createBean(beanName, mbd, args);
+bean = getObjectForBeanInstance(sharedInstance, name, beanName, mbd);
+```
+
+```
+object = getObjectFromFactoryBean(factory, beanName, !synthetic);
+```
+
+```
+object = doGetObjectFromFactoryBean(factory, beanName);
+```
+
+```
+object = factory.getObject();
+```
+
+最终调用至MapperFactoryBean.getObject()：
+
+```
+  public T getObject() throws Exception {
+    return getSqlSession().getMapper(this.mapperInterface);
+  }
+
+```
+
+获取其sqlSessionTemplate：
+
+```
+  public SqlSession getSqlSession() {
+    return this.sqlSessionTemplate;
+  }
+```
+
+然后调用SqlSessionTemplate.getMapper()：
+
+```
+  @Override
+  public <T> T getMapper(Class<T> type) {
+    return getConfiguration().getMapper(type, this);
+  }
+
+  @Override
+  public Configuration getConfiguration() {
+    return this.sqlSessionFactory.getConfiguration();
+  }
+```
+
+```
+  public <T> T getMapper(Class<T> type, SqlSession sqlSession) {
+    return mapperRegistry.getMapper(type, sqlSession);
+  }
+```
+
+```
+  public <T> T getMapper(Class<T> type, SqlSession sqlSession) {
+    final MapperProxyFactory<T> mapperProxyFactory = (MapperProxyFactory<T>) knownMappers.get(type);
+    if (mapperProxyFactory == null) {
+      throw new BindingException("Type " + type + " is not known to the MapperRegistry.");
+    }
+    try {
+      return mapperProxyFactory.newInstance(sqlSession);
+    } catch (Exception e) {
+      throw new BindingException("Error getting mapper instance. Cause: " + e, e);
+    }
+  }
+```
+
+注意，这里的sqlSession是sqlSessionTemplate。
+
+```
+  public T newInstance(SqlSession sqlSession) {
+    final MapperProxy<T> mapperProxy = new MapperProxy<>(sqlSession, mapperInterface, methodCache);
+    return newInstance(mapperProxy);
+  }
+```
+
+```
+  protected T newInstance(MapperProxy<T> mapperProxy) {
+    return (T) Proxy.newProxyInstance(mapperInterface.getClassLoader(), new Class[] { mapperInterface }, mapperProxy);
+  }
+```
+
+重点来看看MapperProxy.invoke()方法：
+
+```
+  @Override
+  public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+    try {
+      if (Object.class.equals(method.getDeclaringClass())) {
+        return method.invoke(this, args);
+      } else if (method.isDefault()) {
+        if (privateLookupInMethod == null) {
+          return invokeDefaultMethodJava8(proxy, method, args);
+        } else {
+          return invokeDefaultMethodJava9(proxy, method, args);
+        }
+      }
+    } catch (Throwable t) {
+      throw ExceptionUtil.unwrapThrowable(t);
+    }
+    final MapperMethod mapperMethod = cachedMapperMethod(method);
+    return mapperMethod.execute(sqlSession, args);
+  }
+```
+
+execute()：
+
+```
+  public Object execute(SqlSession sqlSession, Object[] args) {
+    Object result;
+    switch (command.getType()) {
+      case INSERT: {
+        Object param = method.convertArgsToSqlCommandParam(args);
+        result = rowCountResult(sqlSession.insert(command.getName(), param));
+        break;
+      }
+      case UPDATE: {
+        Object param = method.convertArgsToSqlCommandParam(args);
+        result = rowCountResult(sqlSession.update(command.getName(), param));
+        break;
+      }
+      case DELETE: {
+        Object param = method.convertArgsToSqlCommandParam(args);
+        result = rowCountResult(sqlSession.delete(command.getName(), param));
+        break;
+      }
+      case SELECT:
+        if (method.returnsVoid() && method.hasResultHandler()) {
+          executeWithResultHandler(sqlSession, args);
+          result = null;
+        } else if (method.returnsMany()) {
+          result = executeForMany(sqlSession, args);
+        } else if (method.returnsMap()) {
+          result = executeForMap(sqlSession, args);
+        } else if (method.returnsCursor()) {
+          result = executeForCursor(sqlSession, args);
+        } else {
+          Object param = method.convertArgsToSqlCommandParam(args);
+          result = sqlSession.selectOne(command.getName(), param);
+```
+
+sqlSession.selectOne()调用至：
+
+```
+  @Override
+  public <T> T selectOne(String statement, Object parameter) {
+    return this.sqlSessionProxy.selectOne(statement, parameter);
+  }
+```
+
+也即SqlSession代理类SqlSessionProxy的InvocationHandler——SqlSessionInterceptor的invoke()方法，该方法会创建sqlsession：
+
+```
+    session = sessionFactory.openSession(executorType);
+
+```
+
+
+### 3.2.2 MapperFactoryBean的sqlSessionTemplate属性是怎样设置的？
+调用至：
+
+```
+populateBean(beanName, mbd, instanceWrapper);
+exposedObject = initializeBean(beanName, exposedObject, mbd);
+```
+
+设置属性值sqlSessionFactory：
+
+```
+applyPropertyValues(beanName, mbd, bw, pvs);
+```
+
+```
+setPropertyValues(pvs, false, false);
+```
+
+```
+setPropertyValue(pv);
+```
+
+最后通过反射调用至MapperFactoryBean父类SqlSessionDaoSupport.setSqlSessionFactory()方法
+
+```
+  public void setSqlSessionFactory(SqlSessionFactory sqlSessionFactory) {
+    if (this.sqlSessionTemplate == null || sqlSessionFactory != this.sqlSessionTemplate.getSqlSessionFactory()) {
+      this.sqlSessionTemplate = createSqlSessionTemplate(sqlSessionFactory);
+    }
+  }
+```
+
+```
+  protected SqlSessionTemplate createSqlSessionTemplate(SqlSessionFactory sqlSessionFactory) {
+    return new SqlSessionTemplate(sqlSessionFactory);
+  }
+```
+
+```
+  public SqlSessionTemplate(SqlSessionFactory sqlSessionFactory, ExecutorType executorType,
+      PersistenceExceptionTranslator exceptionTranslator) {
+
+    notNull(sqlSessionFactory, "Property 'sqlSessionFactory' is required");
+    notNull(executorType, "Property 'executorType' is required");
+
+    this.sqlSessionFactory = sqlSessionFactory;
+    this.executorType = executorType;
+    this.exceptionTranslator = exceptionTranslator;
+    this.sqlSessionProxy = (SqlSession) newProxyInstance(SqlSessionFactory.class.getClassLoader(),
+        new Class[] { SqlSession.class }, new SqlSessionInterceptor());
+  }
+```
+
+特别注意，这里的sqlSessionProxy是个代理，其InvocationHandler是SqlSessionInterceptor，invoke()方法如下：
+
+```
+  private class SqlSessionInterceptor implements InvocationHandler {
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+      SqlSession sqlSession = getSqlSession(SqlSessionTemplate.this.sqlSessionFactory,
+          SqlSessionTemplate.this.executorType, SqlSessionTemplate.this.exceptionTranslator);
+      try {
+        Object result = method.invoke(sqlSession, args);
+        if (!isSqlSessionTransactional(sqlSession, SqlSessionTemplate.this.sqlSessionFactory)) {
+          // force commit even on non-dirty sessions because some databases require
+          // a commit/rollback before calling close()
+          sqlSession.commit(true);
+        }
+        return result;
+      } catch (Throwable t) {
+```
+
+```
+  public static SqlSession getSqlSession(SqlSessionFactory sessionFactory, ExecutorType executorType,
+      PersistenceExceptionTranslator exceptionTranslator) {
+
+    SqlSessionHolder holder = (SqlSessionHolder) TransactionSynchronizationManager.getResource(sessionFactory);
+
+    SqlSession session = sessionHolder(executorType, holder);
+    if (session != null) {
+      return session;
+    }
+
+    session = sessionFactory.openSession(executorType);
+
+    registerSessionHolder(sessionFactory, executorType, exceptionTranslator, session);
+
+    return session;
+  }
+
+```
 
 # 4.MapperScannerConfigurer源码分析
 

@@ -1075,6 +1075,9 @@ public class MainConfig {
 
 ```
 
+<div align="center"> <img src="https://github.com/wz3118103/CS-Notes/blob/master/notes/pics/AOP通知.png" width="520px" > </div><br>
+
+
 通知方法, 分以下五种:
 * 前置通知：
   - 执行时机：目标对象方法之前执行通知
@@ -1107,6 +1110,61 @@ public class MainConfig {
 * 配置文件：&#60;aop:aspectj-autoproxy/&#62;
 * 注解：@EnableAspectJAutoProxy
 
+
+## 参数传递
+
+假如一个业务组件是有参数的，并且参数要传递给通知，那么怎么做呢？
+
+业务方法：
+
+```
+public class TestBiz {
+    public void init(String name,int age){
+        System.out.println("test init name " + name + ",age " + age);
+    }
+}
+```
+
+定义一个接收参数的环绕通知
+
+```
+public class TestAspect {
+
+    public Object aroundinit(ProceedingJoinPoint joinPoint,String name,int age){
+        Object obj = null;
+        try {
+            System.out.println("Aspect before around");
+            obj = joinPoint.proceed();
+            System.out.println("Aspect around" + name+","+age);
+            System.out.println("Aspect after around");
+        } catch (Throwable throwable) {
+            throwable.printStackTrace();
+        }
+        return obj;
+    }
+}
+```
+
+在xml中配置
+
+```
+    <bean id="testAspect" class="com.mmdet.learn.ssm.testaop.TestAspect"/>
+    <bean id="testBiz" class="com.mmdet.learn.ssm.testaop.TestBiz"/>
+
+    <aop:config>
+        <aop:aspect id="testAspectAop" ref="testAspect">
+                    <aop:around method="aroundinit" pointcut="execution(* com.mmdet.learn.ssm.testaop.TestBiz.init(String,int)) and args(name, age)"/>
+        </aop:aspect>
+    </aop:config>
+```
+
+关键在于切入点的定义上
+
+```
+"execution(* com.mmdet.learn.ssm.testaop.TestBiz.init(String,int)) and args(name, age)"
+```
+
+init中定义参数的类型，args中定义的是参数名，用and连接，要和业务组件定的参数名一致，通知接收的时候，也必须保持一致。
 
 # 6.事务
 
