@@ -1,3 +1,22 @@
+**针对注解型容器AnnotationConfigApplicationContext：**
+* this()
+  - 在父类GenericApplicationContext构造方法中：this.beanFactory = new DefaultListableBeanFactory()
+  - this.reader = new AnnotatedBeanDefinitionReader(this)
+    * AnnotationConfigUtils.registerAnnotationConfigProcessors(this.registry)
+    * ——会注册注解处理器
+    * ——internalConfigurationAnnotationProcessor对应ConfigurationClassPostProcessor（该处理器就是专门用来处理@Configuration注解）
+    * ——internalAutowiredAnnotationProcessor对应AutowiredAnnotationBeanPostProcessor
+    * ——internalCommonAnnotationProcessor对应CommonAnnotationBeanPostProcessor
+  - this.scanner = new ClassPathBeanDefinitionScanner(this)
+* register(componentClasses)，将componentClasses注册到Spring容器中
+* refresh()
+
+
+**针对配置型容器ClassPathXmlApplicationContext：**
+* setConfigLocations(configLocations)
+* refresh()
+
+
 **IOC流程——Spring容器的refresh()【创建刷新】：**
 * 1.prepareRefresh()刷新前的预处理;
   - 1）initPropertySources()初始化一些属性设置;子类自定义个性化的属性设置方法；
@@ -9,6 +28,12 @@
 	设置id；
   - 2）getBeanFactory();返回刚才GenericApplicationContext创建的BeanFactory对象；
   - 3）将创建的BeanFactory【DefaultListableBeanFactory】返回；
+  - 4）（ClassPathXmlApplicationContext）loadBeanDefinitions(beanFactory)，解析配置Bean的XML,并把Bean定义注册到BeanFatory。调用至BeanDefinitionParserDelegate.parseCustomElement()。
+    * 对于 &#60;context:component-scan/&#62; 标签调用ComponentScanBeanDefinitionParser.parse()
+      - 当我们在 XML 里面配置 &#60;context:component-scan/&#62; 标签后，Spring 框架会根据标签内指定的包路径下查找指定过滤条件的 Bean，并可以根据标签内配置的 BeanNameGenerator 生成 Bean 的名称，根据标签内配置的 scope-proxy 属性配置 Bean 被代理的方式，根据子标签 &#60;context:include-filter/&#62;,&#60;context:exclude-filter/&#62; 配置自定义过滤条件。
+      - this.beanDefinitionMap.put(beanName, beanDefinition)
+      - registerComponents(parserContext.getReaderContext(), beanDefinitions, element)，跟AnnotationConfigApplicationContext注入的注解处理器一样
+    * 对于aop:config标签调用ConfigBeanDefinitionParser.parse()
 * 3.prepareBeanFactory(beanFactory);BeanFactory的预准备工作（以上创建了beanFactory,现在对BeanFactory对象进行一些设置属性）；
   - 1）设置BeanFactory的类加载器、支持表达式解析器...
   - 2）添加部分BeanPostProcessor【ApplicationContextAwareProcessor】
@@ -22,11 +47,14 @@
 	  systemProperties【Map<String, Object>】、
 	  systemEnvironment【Map<String, Object>】
 * 4.postProcessBeanFactory(beanFactory);BeanFactory准备工作完成后进行的后置处理工作；
-  - 1）子类通过重写这个方法来在BeanFactory创建并预准备完成以后做进一步的设置
+  - 子类通过重写这个方法来在BeanFactory创建并预准备完成以后做进一步的设置
 * 5.invokeBeanFactoryPostProcessors(beanFactory);执行BeanFactoryPostProcessor的方法；
 	BeanFactoryPostProcessor：BeanFactory的后置处理器。在BeanFactory标准初始化之后执行的；
 	两个接口：BeanFactoryPostProcessor、BeanDefinitionRegistryPostProcessor
   - 先执行BeanDefinitionRegistryPostProcessor
+    * BeanDefinitionRegistryPostProcessor的处理，BeanDefinitionRegistryPostProcessor 接口继承自 BeanFactoryPostProcessor，它新添加了一个接口，用来在BeanFactoryPostProcessor 实现类中 postProcessBeanFactory 方法执行前再注册一些 Bean 到 beanFactory 中。
+    * AnnotationConfigApplicationContext，会在 refresh 阶段前注册一个ConfigurationClassPostProcessor，它实现了 BeanDefinitionRegistryPostProcessor、PriorityOrdered 两个接口
+      - 因为实现了BeanDefinitionRegistryPostProcessor，所以在前面会执行执行 postProcessBeanDefinitionRegistry 方法。这个方法内部作用是使用ConfigurationClassParser 解析所有标注有 @Configuration 注解的类，并解析该类里面所有标注 @Bean 的方法和标注 @Import 的bean，并注入这些解析的 Bean 到 Spring上下文容器里面。
     * 1）获取所有的BeanDefinitionRegistryPostProcessor；
     * 2）看先执行实现了PriorityOrdered优先级接口的BeanDefinitionRegistryPostProcessor、
 	    postProcessor.postProcessBeanDefinitionRegistry(registry)
@@ -35,6 +63,7 @@
     * 4）最后执行没有实现任何优先级或者是顺序接口的BeanDefinitionRegistryPostProcessors；
 		postProcessor.postProcessBeanDefinitionRegistry(registry)	
   - 再执行BeanFactoryPostProcessor的方法
+    * （已废弃）PropertyPlaceholderConfigurer实现了PriorityOrdered接口，执行 postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) 方法对 Bean 定义的属性值中 ${...} 进行替换
     * 1）获取所有的BeanFactoryPostProcessor
     * 2）1看先执行实现了PriorityOrdered优先级接口的BeanFactoryPostProcessor、
 		postProcessor.postProcessBeanFactory()
@@ -42,7 +71,7 @@
 		postProcessor.postProcessBeanFactory()
     * 4）最后执行没有实现任何优先级或者是顺序接口的BeanFactoryPostProcessor；
 		postProcessor.postProcessBeanFactory()
-* 6.registerBeanPostProcessors(beanFactory);注册BeanPostProcessor（Bean的后置处理器）【 intercept bean creation】
+* 6.registerBeanPostProcessors(beanFactory);注册BeanPostProcessor（Bean的后置处理器）【 intercept bean creation】本阶段就是把用户注册的实现了BeanPostProcessor接口的 Bean 进行收集,然后放入到 BeanFactory 的 beanPostProcessors 属性里面,待后面使用。
 	不同接口类型的BeanPostProcessor；在Bean创建前后的执行时机是不一样的
 	BeanPostProcessor、
 	DestructionAwareBeanPostProcessor、
@@ -106,11 +135,11 @@
 		调用MergedBeanDefinitionPostProcessor的postProcessMergedBeanDefinition(mbd, beanType, beanName);
         * step.3）【Bean属性赋值】populateBean(beanName, mbd, instanceWrapper);
 		赋值之前：
-          - 1）、拿到InstantiationAwareBeanPostProcessor后置处理器；
+          - 1）拿到InstantiationAwareBeanPostProcessor后置处理器；
 		  postProcessAfterInstantiation()；
-          - 2）、拿到InstantiationAwareBeanPostProcessor后置处理器；
+          - 2）拿到InstantiationAwareBeanPostProcessor后置处理器；
 		  postProcessPropertyValues()；
-          - 3）、应用Bean属性的值；为属性利用setter方法等进行赋值；
+          - 3）应用Bean属性的值；为属性利用setter方法等进行赋值；
 		  applyPropertyValues(beanName, mbd, bw, pvs);
         * step.4）、【Bean初始化】initializeBean(beanName, exposedObject, mbd);
           - 1）【执行Aware接口方法】invokeAwareMethods(beanName, bean);执行xxxAware接口的方法
@@ -140,7 +169,7 @@
   - 4）liveBeansView.registerApplicationContext(this);
 	
 
-总结：
+**总结：**
 * 1.Spring容器在启动的时候，先会保存所有注册进来的Bean的定义信息；
   - 1）xml注册bean；<bean>
   - 2）注解注册Bean；@Service、@Component、@Bean、xxx
@@ -157,6 +186,18 @@
   ApplicationEventMulticaster；事件派发：
 
 
+**容器关闭close()方法，调用AbstractApplicationContext.doClose()：**
+* publishEvent(new ContextClosedEvent(this))
+  - 给所有注册了 ContextClosedEvent 事件的 ApplicationListener 发送通知。当应用程序上下文关闭时候，会给所有注册了 ContextClosedEvent 事件的 ApplicationListener 发送通知，所以用户可以实现 ApplicationListener 并关注 ContextClosedEvent 事件（如下代码），同时把该 Bean 注入到 Spring 容器，在应用程序上下文关闭时候做一些工作。
+* destroyBeans()
+  - 销毁应用程序上下文管理的 BeanFactory 里面的所有 Beans
+  - 调用DefaultSingletonBeanRegistry.destroySingletons()
+    * bean.destroy()
+      - DisposableBeanAdapter.invokeCustomDestroyMethod()，调用至@Bean(initMethod = "init", destroyMethod = "destroy")
+      - DisposableBeanAdapter.destroy()，调用((DisposableBean) this.bean).destroy()
+* closeBeanFactory()
+* onClose()
+  - SpringBoot 的 Web 应用程序上下文 EmbeddedWebApplicationContext 实现的 onClose方法，在关闭应用程序上下文后关闭内嵌的 Web 容器
 
 
 
@@ -1321,47 +1362,206 @@ doCreateBean()方法：
 
 # 2.组件添加到IOC容器
 
+# 2.1 @Component
+
+@Component 对应<context:component-scan base-package="com.jiaduo.test" />
+
+* step1.解析配置文件
+  - 最后调用至ComponentScanBeanDefinitionParser.parse()
+    * 当我们在 XML 里面配置 <context:component-scan/> 标签后，Spring 框架会根据标签内指定的包路径下查找指定过滤条件的 Bean，并可以根据标签内配置的 BeanNameGenerator 生成 Bean 的名称，根据标签内配置的 scope-proxy 属性配置 Bean 被代理的方式，根据子标签 <context:include-filter/>,<context:exclude-filter/> 配置自定义过滤条件。
+    * 注册注解处理器
+      - internalConfigurationAnnotationProcessor对应ConfigurationClassPostProcessor
+      - internalAutowiredAnnotationProcessor对应AutowiredAnnotationBeanPostProcessor
+      - internalCommonAnnotationProcessor对应CommonAnnotationBeanPostProcessor
+* step2.ConfigurationClassPostProcessor会处理@Configuration注解
+  AutowiredAnnotationBeanPostProcessor处理@Autowired注解
+  CommonAnnotationBeanPostProcessor处理@Resource注解
+
+
+
+## 2.2 注解 @Configuration、@ComponentScan、@Import、@PropertySource、@Bean工作原理
+
+AnnotationConfigApplicationContext，会在 refresh 阶段前注册一个ConfigurationClassPostProcessor，它实现了 BeanDefinitionRegistryPostProcessor、PriorityOrdered 两个接口.
+
+* 因为实现了BeanDefinitionRegistryPostProcessor，所以在前面会执行执行 postProcessBeanDefinitionRegistry 方法。这个方法内部作用是使用ConfigurationClassParser 解析所有标注有 @Configuration 注解的类，并解析该类里面所有标注 @Bean 的方法和标注 @Import 的bean，并注入这些解析的 Bean 到 Spring上下文容器里面。
+* 因为实现了PriorityOrdered接口，所以该类有 getOrder 方法返回该类的优先级，这里实现为O rdered.LOWEST_PRECEDENCE，也就是优先级最低。
+
+
+## 2.3 FactoryBean
+
+以SqlSessionFactoryBean为例：
+* 实现了InitializingBean
+  - 调用((InitializingBean) bean).afterPropertiesSet()调用SqlSessionFactoryBean.afterPropertiesSet()
+  - this.sqlSessionFactory = buildSqlSessionFactory()
+* 实现了FactoryBean
+  - getObjectForBeanInstance(sharedInstance, name, beanName, mbd)
+    * 首先判断beanName是否是以&开头，如果是FactoryBean，直接返回FactoryBean自身
+    * 不是FactoryBean类型的bean，直接返回
+    * getObjectFromFactoryBean()
+      - 最后调用SqlSessionFactoryBean.getObject()返回之前创建的this.sqlSessionFactory
+
 # 3.bean生命周期
 
-
-
 # 4.赋值及依赖注入
+
+@Autowired、@Value是AutowiredAnnotationBeanPostProcessor进行处理的。
+
+* AutowiredAnnotationBeanPostProcessor实现了BeanFactoryAware接口,在registerBeanPostProcessors(beanFactory)阶段BeanPostProcessor实例化时,调用setBeanFactory()方法
+* finishBeanFactoryInitialization(beanFactory)创建bean
+  - applyMergedBeanDefinitionPostProcessors(mbd, beanType, beanName),MergedBeanDefinitionPostProcessor接口方法调用
+    * 这里是先通过 buildAutowiringMetadata 收集当前 Bean 中的注解信息,其中会先查找当前类里面的注解信息,对应在变量上标注 @Autowired 的变量会创建一个 AutowiredFieldElement 实例用来记录注解信息,对应在 set 方法上标注 @Autowired 的方法会创建一个 AutowiredMethodElement 对象来保存注解信息。然后会递归解析当前类的直接父类里面的注解,并把最远父类到当前类里面的注解信息依次存放到InjectionMetadata对象（内部使用集合保存所有方法和属性上的注解元素对象）,然后缓存起来以便后面使用,这里的缓存实际是个并发 map
+  - populateBean(beanName, mbd, instanceWrapper)调用InstantiationAwareBeanPostProcessor接口方法
+    * postProcessProperties()方法属性注入
+      - findAutowiringMetadata(beanName, bean.getClass(), pvs)从缓存直接返回
+      - metadata.inject(bean, beanName, pvs)依赖注入
+        * ReflectionUtils.makeAccessible(field);
+        * field.set(bean, value);
+* 总结：
+  - @Autowired 的使用简化了我们的开发，其原理是使用 AutowiredAnnotationBeanPostProcessor 类来实现，该类实现了 Spring 框架的一些扩展接口，通过实现 BeanFactoryAware 接口使其内部持有了 BeanFactory（可轻松的获取需要依赖的的 Bean）；通过实现 MergedBeanDefinitionPostProcessor 扩展接口，在 BeanFactory 里面的每个 Bean 实例化前获取到每个 Bean 里面的 @Autowired 信息并缓存下来；通过实现 InstantiationAwareBeanPostProcessor扩展接口在 BeanFactory 里面的每个 Bean 实例后从缓存取出对应的注解信息，获取依赖对象，并通过反射设置到 Bean 属性里面。
+  - 实现了 BeanFactoryAware 接口，让 AutowiredAnnotationBeanPostProcessor 获取到当前 Spring 应用程序上下文管理的 BeanFactory。例如：这个在后面依赖注入时，需要使用beanFatory解析依赖的bean。
+  - 实现了 MergedBeanDefinitionPostProcessor 接口，postProcessMergedBeanDefinition()通过 findAutowiringMetadata 方法找到当前 Bean 中标注 @Autowired 注解的属性变量和方法，然后递归解析当前类父类注解信息，最后将这些信息放到缓存Map中
+  - 继承了 InstantiationAwareBeanPostProcessorAdapter，也即实现了接口InstantiationAwareBeanPostProcessor。调用postProcessProperties()方法，首先获取当前 Bean 里面的依赖元数据信息，由于已经收集到了缓存，所以这里是直接从缓存获取的；逐个调用 InjectionMetadata 内部集合里面存放的属性和方法注解对象的 inject 方法，通过反射设置依赖的属性值和反射调用 set 方法设置属性值。
+    * 解析value的时候，如果此时bean还没有注入beanFactory，需要调用beanFactory.getBean(beanName)将其注入。这也是为什么要传入BeanFactory的原因。
 
 # 5.Aware获取底层组件
 
 # 6.AOP
 
-## xml配置文件方式
 
-AopNamespaceHandlelr
 
-```
-public class AopNamespaceHandler extends NamespaceHandlerSupport {
+## 6.1 xml配置文件方式
 
-	/**
-	 * Register the {@link BeanDefinitionParser BeanDefinitionParsers} for the
-	 * '{@code config}', '{@code spring-configured}', '{@code aspectj-autoproxy}'
-	 * and '{@code scoped-proxy}' tags.
-	 */
-	@Override
-	public void init() {
-		// In 2.0 XSD as well as in 2.1 XSD.
-		registerBeanDefinitionParser("config", new ConfigBeanDefinitionParser());
-		registerBeanDefinitionParser("aspectj-autoproxy", new AspectJAutoProxyBeanDefinitionParser());
-		registerBeanDefinitionDecorator("scoped-proxy", new ScopedProxyBeanDefinitionDecorator());
+* 1.配置解析：obtainFreshBeanFactory()调用refreshBeanFactory()，对于ClassPathXmlApplicationContext 来说，调用AbstractRefreshableApplicationContext
+  - createBeanFactory()，创建一个DefaultListableBeanFactory
+  - loadBeanDefinitions(beanFactory)，调用至调用至BeanDefinitionParserDelegate.parseCustomElement()，对于aop:config标签调用ConfigBeanDefinitionParser.parse()
+    * configureAutoProxyCreator(parserContext, element)，AopNamespaceUtils.registerAspectJAutoProxyCreatorIfNecessary(parserContext, element)
+      - AopConfigUtils.registerAspectJAutoProxyCreatorIfNecessary，注册名称为internalAutoProxyCreator的AspectJAwareAdvisorAutoProxyCreator到 Spring IOC 容器，该类的作用是自动创建代理类
+      - useClassProxyingIfNecessary()，解析 aop:config 标签里面的 proxy-target-class 和 expose-proxy 属性值
+        * AopConfigUtils.forceAutoProxyCreatorToUseClassProxying(registry)，针对 proxy-target-class 属性（默认 false），如果设置为 true，则会强制使用 CGLIB 生成代理类
+        * AopConfigUtils.forceAutoProxyCreatorToExposeProxy(registry)，对于 expose-proxy 属性（默认 false）如果设置为 true，则对一个类里面的嵌套方法调用的方法也进行代理
+    * parsePointcut(elt, parserContext)，对 aop:config 标签里面的 aop:pointcut 元素进行解析，每个 pointcut 元素会创建一个 AspectJExpressionPointcut 的 bean 定义，并注册到Spring IOC
+    * parseAdvisor(elt, parserContext)，对 aop:config 标签里面的 aop:advisor 元素进行解析，每个 advisor 元素会创建一个 DefaultBeanFactoryPointcutAdvisor 的 bean 定义，并注册到 Spring IOC
+    * parseAspect(elt, parserContext)，对 aop:config 标签里面的 aop:aspect 元素进行解析，会解析 aop:aspect 元素内的子元素，每个子元素会对应创建一个 AspectJPointcutAdvisor 的 bean 定义，并注册到 Spring IOC
+* 2.registerBeanPostProcessors(beanFactory)
+  - 上面注册的AspectJAwareAdvisorAutoProxyCreator类实现了BeanFactoryAware接口,BeanPostProcessor实例化,并调用setBeanFactory()方法
+  - BeanPostProcessor pp = beanFactory.getBean(ppName, BeanPostProcessor.class)，调用了实现BeanFactoryAware接口的setBeanFactory()方法
+* 3.finishBeanFactoryInitialization(beanFactory)，preInstantiateSingletons()方法中循环getBean(beanName)
+  - 在initializeBean(beanName, exposedObject, mbd)中，调用后置处理器调用的是AspectJAwareAdvisorAutoProxyCreator 类实现的BeanPostProcessor接口的方法postProcessAfterInitialization()，看是否需要进行代理wrapIfNecessary(bean, beanName, cacheKey)：
+    * getAdvicesAndAdvisorsForBean()，调用至AbstractAdvisorAutoProxyCreator,在 Spring 容器中查找可以对当前 bean 进行增强的通知 bean，找到spring容器中所有Advisor类型的Bean，哪些增强advice可以应用到当前 bean 上，这个是通过切点表达式来匹配的。
+    * createProxy()，最终createAopProxy().getProxy(classLoader)，决定使用JDK动态代理还是Cglib代理
+      - cglib动态代理增强方法在callback里面，而关于AOP的callback是DynamicAdvisedInterceptor
+      - jdk动态代理：JdkDynamicAopProxy 类实现了 InvocationHandler 接口
 
-		// Only in 2.0 XSD: moved to context namespace as of 2.1
-		registerBeanDefinitionParser("spring-configured", new SpringConfiguredBeanDefinitionParser());
-	}
 
-}
-```
+## 6.2 注解方式
 
-## 注解方式
+* @EnableAspectJAutoProxy引入了@Import(AspectJAutoProxyRegistrar.class)，AspectJAutoProxyRegistrar实现了 ImportBeanDefinitionRegistrar
+  - 执行时机invokeBeanFactoryPostProcessors(beanFactory)调用ConfigurationClassPostProcessor.postProcessBeanDefinitionRegistry(registry)
+    * loadBeanDefinitionsFromRegistrars(configClass.getImportBeanDefinitionRegistrars())，调用至AspectJAutoProxyRegistrar.registerBeanDefinitions()
+      - 调用AopConfigUtils.registerAspectJAnnotationAutoProxyCreatorIfNecessary(registry)，注册名字为internalAutoProxyCreator的AnnotationAwareAspectJAutoProxyCreator
+* AnnotationAwareAspectJAutoProxyCreator，与InfrastructureAdvisorAutoProxyCreator继承关系类似，都继承了AbstractAdvisorAutoProxyCreator，也即最终继承自BeanFactoryAware、InstantiationAwareBeanPostProcessor和BeanPostProcessor
+  - this.aspectJAdvisorFactory = new ReflectiveAspectJAdvisorFactory(beanFactory)
+  - this.aspectJAdvisorsBuilder = new BeanFactoryAspectJAdvisorsBuilderAdapter(beanFactory, this.aspectJAdvisorFactory)
+  - 同理会在拦截对象bean初始化后调用postProcessAfterInitialization()进行代理对象的创建
+    * specificInterceptors = getAdvicesAndAdvisorsForBean()
+    * proxy = createProxy()
+* 整体执行流程
+  - AnnotationConfigApplicationContext acc = new AnnotationConfigApplicationContext(MainConfig.class)
+    * invokeBeanFactoryPostProcessors(beanFactory)，ConfigurationClassPostProcessor解析配置类,注册配置类中定义的所有BeanDefinition
+    * registerBeanPostProcessors(beanFactory)，实例化CommonAnnotationBeanPostProcessor、AutowiredAnnotationBeanPostProcessor和AnnotationAwareAspectJAutoProxyCreator
+    * finishBeanFactoryInitialization(beanFactory)
+      - applyMergedBeanDefinitionPostProcessors(mbd, beanType, beanName)，MergedBeanDefinitionPostProcessor类型的Processor进行处理
+      - populateBean(beanName, mbd, instanceWrapper)
+        * CommonAnnotationBeanPostProcessor，处理WebServiceRef、EJB、Resource注解，并进行诸如
+        * AutowiredAnnotationBeanPostProcessor处理@Autowired注解，并进行注入
+      - initializeBean(beanName, exposedObject, mbd)
+        * AnnotationAwareAspectJAutoProxyCreator注解，必要时创建动态代理wrapIfNecessary(bean, beanName, cacheKey)
+          - specificInterceptors = getAdvicesAndAdvisorsForBean()，返回的顺序是logException、logReturn、logEnd、Around、logStart
+          - createProxy()
+  - Calculator calculator = acc.getBean(Calculator.class)
+  - calculator.div(1, 1)
+    * DynamicAdvisedInterceptor.intercept()
+    * ——chain = this.advised.getInterceptorsAndDynamicInterceptionAdvice(method, targetClass)
+    * ——retVal = new CglibMethodInvocation(proxy, target, method, args, targetClass, chain, methodProxy).proceed()，最终调用ReflectiveMethodInvocation.proceed()
+      - interceptorOrInterceptionAdvice = this.interceptorsAndDynamicMethodMatchers.get(0)进而调用：((MethodInterceptor) interceptorOrInterceptionAdvice).invoke(this)
+      - ——mi.proceed()，因为上面讲this传入了invoke，这里又是调用this.proceed()方法，又会进入到ReflectiveMethodInvocation.proceed()
+        * interceptorOrInterceptionAdvice = this.interceptorsAndDynamicMethodMatchers.get(1)进而调用：((MethodInterceptor) interceptorOrInterceptionAdvice).invoke(this)，进入到logException（AspectJAfterThrowingAdvice）的invoke()方法
+        * ——mi.proceed()
+          - 进入logReturn(AfterReturningAdviceInterceptor).invoke()方法
+          - ——retVal = mi.proceed()
+            * 进入到logEnd(AspectJAfterAdvice)的invoke方法
+            * ——mi.proceed()
+              - 进入到around（AspectJAroundAdvice）的invoke方法，调用invokeAdviceMethod(pjp, jpm, null, null)，最终调用到自定义的Around方法
+              - ——真正方法调用前的操作
+              - ——proceedingJoinPoint.proceed()
+                * 最终又调用到了ReflectiveMethodInvocation.proceed()，调用logStart（MethodBeforeAdviceInterceptor）的invoke()
+                * ——this.advice.before()
+                * ——mi.proceed()
+                  - **this.currentInterceptorIndex == this.interceptorsAndDynamicMethodMatchers.size() - 1，直接调用，this.methodProxy.invoke(this.target, this.arguments)最终会调用实际的目标方法invokeJoinpoint()**
+              - ——真正方法后的操作
+            * ——finally会调用invokeAdviceMethod()
+          - ——this.advice.afterReturning()
+          - ——return retVal
+        * ——invokeAdviceMethod(getJoinPointMatch(), null, ex)
+
+
 
 # 7.事务
 
-## 事务管理之基于AspectJ的XML方式
+## 7.1 事务管理之基于AspectJ的XML方式
+
+* obtainFreshBeanFactory()
+  - loadBeanDefinitions(beanFactory)
+    * 对于tx:advice标签调用TxAdviceBeanDefinitionParser.parse()
+      - tx:advice 作用是创建一个 TransactionInterceptor 拦截器，内部维护事务配置信息。
+      - AbstractSingleBeanDefinitionParser.parseInternal()
+        * TxAdviceBeanDefinitionParser.getBeanClass()，返回TransactionInterceptor
+        * doParse(element, parserContext, builder)，通过循环解析 tx:attributes 标签里面的所有 tx:method 标签，每个 tx:method 对应一个 RuleBasedTransactionAttribute 对象，其中 tx:method 标签中除了可以配置事务传播性，还可以配置事务隔离级别，超时时间，是否只读，和回滚策略。
+        * builder.getBeanDefinition()，BeanDefinitionBuilder 是一个建造者模式，用来构造一个 bean 定义，这个 bean 定义最终会生成一个 TransactionInterceptor 的实例
+      - registerBeanDefinition(holder, parserContext.getRegistry())，注册到Spring容器
+*  tx:advice 作用是创建一个 TransactionInterceptor 拦截器，内部维护事务配置信息。这个拦截器在AOP是作为advice增强的。Spring 事务管理通过配置一个 AOP 切面来实现，其中定义了一个切点用来决定对哪些方法进行方法拦截，定义了一个 TransactionInterceptor 通知，来对拦截到的方法进行事务增强。
+  - 也即cglib代理对象callback，enhancer.setCallBack(MethodInterceptor)，最后通过调用callback也即MethodInterceptor.intercept()方法来实现增强
+  - Aop代理调研DynamicAdviseInterceptor.intercept()方法
+    * retVal = new CglibMethodInvocation(proxy, target, method, args, targetClass, chain, methodProxy).proceed()
+    * 最后调用至TransactionInterceptor.invoke()方法
+* TransactionInterceptor.invoke(）调用至invokeWithinTransaction(invocation.getMethod(), targetClass, invocation::proceed) 
+  - createTransactionIfNecessary(ptm, txAttr, joinpointIdentification)，标准事务,内部有getTransaction（开启事务） 和commit（提交）/rollback（回滚）事务被调用
+    * tm.getTransaction(txAttr)
+      - doBegin(transaction, def)
+        * obtainDataSource().getConnection()
+        * con.setAutoCommit(false)
+    * prepareTransactionInfo(tm, txAttr, joinpointIdentification, status)
+  - invocation.proceedWithInvocation()，这是一个环绕通知,调用proceedWithInvocation激活拦截器链里面的下一个拦击器
+  - 发生异常completeTransactionAfterThrowing()，调用txInfo.getTransactionManager().rollback(txInfo.getTransactionStatus())
+  - 事务执行成功commitTransactionAfterReturning(txInfo)，调用txInfo.getTransactionManager().commit(txInfo.getTransactionStatus())
+
+
+
+<tx:annotation-driven/>,声明使用注解式事务,可替代配置文件中的tx:advice和aop:config
+* <tx:annotation-driven/> 注解的功能也是类似的会创建一个小型切面，不同在于切点是添加了 @Transactional 注解的方法。
+* 该标签是 AnnotationDrivenBeanDefinitionParser 进行解析的，其parse()方法如下：
+  - aspectj模式
+  - proxy模式
+    * AopAutoProxyConfigurer.configureAutoProxyCreator(element, parserContext)
+      - registerAutoProxyCreatorIfNecessary调用AopConfigUtils.registerAutoProxyCreatorIfNecessary
+        * 注册名字为internalAutoProxyCreator的InfrastructureAdvisorAutoProxyCreator。InfrastructureAdvisorAutoProxyCreator 负责收集标注了 @Transactional 注解的方法
+        * 其实现了BeanPostProcessor，在bean初始化后会会调用postProcessAfterInitialization()方法，具体实现在其父类AbstractAutoProxyCreator中
+          - wrapIfNecessary(bean, beanName, cacheKey)
+            * specificInterceptors = getAdvicesAndAdvisorsForBean()
+            * ——candidateAdvisors = findCandidateAdvisors()，调用InfrastructureAdvisorAutoProxyCreator.isEligibleAdvisorBean(beanName)，beanName为internalTransactionAdvisor
+            * ——findAdvisorsThatCanApply(candidateAdvisors, beanClass, beanName)，最后调用到SpringTransactionAnnotationParser. parseTransactionAnnotation ()；解析 @Transactional 上的属性值，比如事务隔离性了，事务传播性了等，然后保存到 TransactionAttribute 返回。
+      - 注册AnnotationTransactionAttributeSource
+      - 注册TransactionInterceptor(设置transactionManagerBeanName;设置transactionAttributeSource)
+      - 注册BeanFactoryTransactionAttributeSourceAdvisor,小型切面,对标注了 @Transactional 注解的方法进行事务功能增强
+        * 设置transactionAttributeSource
+        * 设置增强adviceBeanName为上面注册的TransactionInterceptor
+        * 设置order
+
+
+
+
+
+
 
 ```
 public class TxNamespaceHandler extends NamespaceHandlerSupport {
@@ -1704,7 +1904,23 @@ DataSourceTransactionManager的事务管理是通过底层的JDBC代码实现的
 
 
 
-## 声明式事务
+## 7.2 声明式事务（基于注解AOP的事务管理）
+
+* @EnableTransactionManagement 会@Import(TransactionManagementConfigurationSelector.class)
+* TransactionManagementConfigurationSelector
+  - PROXY模式，注入如下两个组件
+    * AutoProxyRegistrar，调用位置：invokeBeanFactoryPostProcessors()
+      - ConfigurationClassPostProcessor.postProcessBeanDefinitionRegistry()，调用至loadBeanDefinitionsFromRegistrars(configClass.getImportBeanDefinitionRegistrars())，最终调用至AutoProxyRegistrar.registerBeanDefinitions()
+      - AopConfigUtils.registerAutoProxyCreatorIfNecessary()，也即注册名字为internalAutoProxyCreator的InfrastructureAdvisorAutoProxyCreator；InfrastructureAdvisorAutoProxyCreator利用后置处理器机制在对象创建以后，包装对象，返回一个代理对象（增强器），代理对象执行方法利用拦截器链进行调用
+    * ProxyTransactionManagementConfiguration，是个@Configuration(proxyBeanMethods = false)；注册三个bean用来进行拦截增强，在初始化bean之后调用BeanPostProcessor——InfrastructureAdvisorAutoProxyCreator.postProcessAfterInitialization()创建代理wrapIfNecessary()，然后寻找增强类时创建的
+      - 注册一个名字为internalTransactionAdvisor的BeanFactoryTransactionAttributeSourceAdvisor
+      - 注册AnnotationTransactionAttributeSource
+      - 注册TransactionInterceptor
+
+
+
+
+使用方式：
 
 * service类上或者方法上加注解：
   - 类上加@Transactional：表示该类中所有的方法都被事务管理
@@ -1724,17 +1940,7 @@ DataSourceTransactionManager的事务管理是通过底层的JDBC代码实现的
 ```
 * @EnableTransactionManagement可以代替xml配置文件
 
-# 8.BeanFactory的两个重要后置处理器
 
-* BeanFactoryPostProcessor原理:
-  invokeBeanFactoryPostProcessors(beanFactory);
-  - 直接在BeanFactory中找到所有类型是BeanFactoryPostProcessor的组件，并执行他们的方法
-  - 在初始化创建其他组件前面执行
-* BeanDefinitionRegistryPostProcessor extends BeanFactoryPostProcessor
-  - postProcessBeanDefinitionRegistry();
-  - 在所有bean定义信息将要被加载，bean实例还未创建的；
-  - 优先于BeanFactoryPostProcessor执行；
-  - 利用BeanDefinitionRegistryPostProcessor给容器中再额外添加一些组件；
 
 
 
